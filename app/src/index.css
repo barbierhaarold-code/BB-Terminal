@@ -11,7 +11,7 @@
     letter-spacing: 0.01em;
   }
   :focus-visible { @apply outline-none; }
-  ::selection { background: rgba(255,140,0,0.25); color: #fff; }
+  ::selection { background: rgba(180,92,255,0.25); color: #fff; }
 }
 
 @layer components {
@@ -47,12 +47,24 @@
     display: inline-block;
     width: 8px;
     height: 14px;
-    background: #ff8c00;
+    background: #b45cff;
     margin-left: 2px;
     animation: blink 1.1s steps(1) infinite;
     vertical-align: -2px;
   }
   @keyframes blink {
     50% { opacity: 0; }
+  }
+
+  .marquee-track {
+    display: inline-flex;
+    white-space: nowrap;
+    will-change: transform;
+    animation: marquee 60s linear infinite;
+  }
+  .marquee-viewport:hover .marquee-track { animation-play-state: paused; }
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
   }
 }

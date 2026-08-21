@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchProfile, fetchQuote } from "@/lib/api";
-import { fmtPrice, fmtPct, fmtInt, fmtPctFromDecimal, fmtVolume } from "@/lib/format";
+import { fmtPrice, fmtPct, fmtInt, fmtVolume } from "@/lib/format";
 
 export function DES({ symbol }: { symbol: string }) {
   const profile = useQuery({ queryKey: ["profile", symbol], queryFn: () => fetchProfile(symbol) });
@@ -55,7 +55,10 @@ export function DES({ symbol }: { symbol: string }) {
         <KV k="SHARES OUT" v={fmtVolume(p?.shares_outstanding)} />
         <KV k="SHARES FLOAT" v={fmtVolume(p?.shares_float)} />
         <KV k="BETA" v={p?.beta != null ? p.beta.toFixed(2) : "—"} />
-        <KV k="DIV YIELD" v={fmtPctFromDecimal(p?.dividend_yield)} />
+        {/* /equity/profile's dividend_yield is already a percent (0.35 = 0.35%),
+            unlike /equity/fundamental/metrics' decimal-fraction convention —
+            fmtPctFromDecimal here was double-converting into "+35.00%". */}
+        <KV k="DIV YIELD" v={fmtPct(p?.dividend_yield)} />
         <KV k="52W HIGH" v={fmtPrice(q?.year_high)} />
         <KV k="52W LOW" v={fmtPrice(q?.year_low)} />
         <KV k="MA 50D" v={fmtPrice(q?.ma_50d)} />

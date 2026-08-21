@@ -1,24 +1,12 @@
 import { useQueries } from "@tanstack/react-query";
 import { fetchCryptoHistorical } from "@/lib/api";
 import { fmtPrice, fmtPct, fmtVolume } from "@/lib/format";
+import { COINS } from "@/lib/crypto";
+import { useWorkspace } from "@/store/workspaceStore";
 import { cn } from "@/lib/cn";
 
-const COINS = [
-  { sym: "BTC-USD", name: "Bitcoin" },
-  { sym: "ETH-USD", name: "Ethereum" },
-  { sym: "SOL-USD", name: "Solana" },
-  { sym: "BNB-USD", name: "BNB" },
-  { sym: "XRP-USD", name: "XRP" },
-  { sym: "ADA-USD", name: "Cardano" },
-  { sym: "DOGE-USD", name: "Dogecoin" },
-  { sym: "AVAX-USD", name: "Avalanche" },
-  { sym: "LINK-USD", name: "Chainlink" },
-  { sym: "LTC-USD", name: "Litecoin" },
-  { sym: "MATIC-USD", name: "Polygon" },
-  { sym: "DOT-USD", name: "Polkadot" },
-];
-
 export function CRYPTO() {
+  const openTab = useWorkspace((s) => s.openTab);
   const queries = useQueries({
     queries: COINS.map((c) => ({
       queryKey: ["crypto-hist", c.sym],
@@ -59,7 +47,7 @@ export function CRYPTO() {
               return `${x},${y}`;
             }).join(" ") : "";
             return (
-              <tr key={c.sym}>
+              <tr key={c.sym} onClick={() => openTab("GP", c.sym)} className="cursor-pointer hover:bg-term-amberSubtle">
                 <td className="num text-term-amber font-semibold">{c.sym.replace("-USD", "")}</td>
                 <td className="text-term-heading">{c.name}</td>
                 <td className="num text-right">{fmtPrice(last?.close, last?.close != null && last.close < 1 ? 4 : 2)}</td>
@@ -71,7 +59,7 @@ export function CRYPTO() {
                 <td className="text-right">
                   {spark && (
                     <svg viewBox="0 0 100 24" className="w-24 h-6 inline-block">
-                      <polyline fill="none" stroke={dir === "up" ? "#22ee22" : dir === "down" ? "#ff3b3b" : "#ff8c00"} strokeWidth="1.2" points={spark} />
+                      <polyline fill="none" stroke={dir === "up" ? "#22ee22" : dir === "down" ? "#ff3b3b" : "#b45cff"} strokeWidth="1.2" points={spark} />
                     </svg>
                   )}
                 </td>

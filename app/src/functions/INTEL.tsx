@@ -148,7 +148,10 @@ export function INTEL({ symbol }: { symbol: string }) {
         <div className="p-3 flex flex-col gap-2">
           {shareholder.map((s, i) => <SignalRow key={i} s={s} />)}
           <div className="mt-2 pt-2 border-t border-term-borderSoft grid grid-cols-2 gap-1 text-[11px]">
-            <KV k="YIELD" v={fmtPctFromDecimal(m?.dividend_yield ?? p?.dividend_yield)} />
+            {/* metrics.dividend_yield is a decimal fraction (needs *100);
+                profile.dividend_yield is already a percent — normalize
+                before formatting so the two sources don't get conflated. */}
+            <KV k="YIELD" v={fmtPct(m?.dividend_yield != null ? m.dividend_yield * 100 : p?.dividend_yield)} />
             <KV k="PAYOUT" v={fmtPctFromDecimal(m?.payout_ratio)} />
           </div>
         </div>

@@ -127,7 +127,7 @@ export function CURV() {
           {/* week-ago curve */}
           {week && <polyline fill="none" stroke="#a55f00" strokeWidth="1.2" points={points(week)} />}
           {/* today curve */}
-          <polyline fill="none" stroke="#ff8c00" strokeWidth="2" points={points(today)} />
+          <polyline fill="none" stroke="#b45cff" strokeWidth="2" points={points(today)} />
           {TENORS.map((t) => {
             const v = today[t.k] as number | undefined;
             return v != null ? <circle key={t.k} cx={xFor(t.years)} cy={yFor(v)} r="3" fill="#ffaa33" /> : null;

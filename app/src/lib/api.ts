@@ -35,7 +35,8 @@ export interface Quote {
   last_price?: number; open?: number; high?: number; low?: number; prev_close?: number;
   bid?: number; ask?: number; bid_size?: number; ask_size?: number;
   volume?: number; volume_average?: number; year_high?: number; year_low?: number;
-  ma_50d?: number; ma_200d?: number; currency?: string;
+  ma_50d?: number; ma_200d?: number; currency?: string; market_cap?: number;
+  change?: number; change_percent?: number;
 }
 export interface Candle { date: string; open: number; high: number; low: number; close: number; volume: number; }
 export interface NewsItem { id: string; date: string; title: string; url: string; source?: string; summary?: string; symbol?: string; }
@@ -134,10 +135,10 @@ export const fetchMostActive = () =>
 export const fetchOptions = (s: string) =>
   get<OptionsRow[]>("/derivatives/options/chains", { symbol: s, provider: "yfinance" });
 
-export const fetchIndexHistorical = (s: string, days = 30) => {
+export const fetchIndexHistorical = (s: string, days = 30, interval = "1d") => {
   const start = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
   return get<Candle[]>("/index/price/historical", {
-    symbol: s, provider: "yfinance", interval: "1d", start_date: start,
+    symbol: s, provider: "yfinance", interval, start_date: start,
   });
 };
 
@@ -148,12 +149,98 @@ export const fetchTreasuryRates = (days = 30) => {
   });
 };
 
-export const fetchFxHistorical = (pair: string, days = 30) => {
+export const fetchFxHistorical = (pair: string, days = 30, interval = "1d") => {
   const start = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
   return get<Candle[]>("/currency/price/historical", {
-    symbol: pair, provider: "yfinance", interval: "1d", start_date: start,
+    symbol: pair, provider: "yfinance", interval, start_date: start,
   });
 };
+
+// ────── Timestamp normalization ──────
+// openbb_yfinance fetches intraday candles with `ignore_tz=True`, which
+// strips the tz label but keeps the *exchange-local* wall clock — verified
+// directly against yfinance: GC=F/SI=F/ES=F/NQ=F/DX-Y.NYB are tagged
+// America/New_York, every `=X` currency pair is tagged Europe/London,
+// regardless of where the app is running. A naive string like
+// "2026-08-20T09:25:00" then gets parsed by `new Date()` as the *browser's*
+// local time, not the exchange's — e.g. a browser in CEST (UTC+2) reading a
+// fresh America/New_York (UTC-4) candle miscomputes its age as 6 hours too
+// old. That's the exact cause of the XAU scalper's "STALE — 6h OLD" badge:
+// the candle was ~10 minutes old, not 6 hours; the detector was reading a
+// mis-parsed timestamp. Normalize to true UTC once, here, at the fetch
+// boundary, so every consumer (board, tape, scalper, chart) works with real
+// instants.
+const EXCHANGE_TZ: Record<"metal" | "fx", string> = {
+  metal: "America/New_York",
+  fx: "Europe/London",
+};
+
+function exchangeLocalToUtcIso(naive: string, tz: string): string {
+  const guess = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(naive) ? naive : naive + "Z");
+  if (Number.isNaN(guess.getTime())) return naive;
+  const parts: Record<string, string> = {};
+  for (const p of new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(guess)) parts[p.type] = p.value;
+  const h = parts.hour === "24" ? 0 : +parts.hour;
+  // What the naive digits would mean if `tz`'s current offset applied.
+  const wallAsUtcMs = Date.UTC(+parts.year, +parts.month - 1, +parts.day, h, +parts.minute, +parts.second);
+  const offsetMs = wallAsUtcMs - guess.getTime();
+  return new Date(guess.getTime() - offsetMs).toISOString();
+}
+
+// ────── Forex / metals ──────
+// FX pairs and metal futures have no real `last_price` on the quote endpoint,
+// so the whole FX board is priced off intraday candles instead (see lib/forex).
+/**
+ * Intraday candles for a single instrument — the single price source for the
+ * FX board, ticker tape, and XAU scalper (last + day range + ATR). Metals and
+ * index futures route through the equity endpoint, FX pairs through currency.
+ */
+export const fetchIntraday = (
+  symbol: string,
+  opts: { interval?: string; kind?: "metal" | "fx"; days?: number; bust?: boolean } = {}
+) => {
+  const days = opts.days ?? 2;
+  const start = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+  const path = opts.kind === "fx" ? "/currency/price/historical" : "/equity/price/historical";
+  const tz = EXCHANGE_TZ[opts.kind === "fx" ? "fx" : "metal"];
+  return get<Candle[]>(path, {
+    symbol, provider: "yfinance", interval: opts.interval ?? "5m", start_date: start,
+    // A distinct query string is a distinct cache key in the Vite proxy —
+    // this is the "forced cache-bust" escape hatch for a card that's been
+    // stuck stale past the threshold (see useStaleBust in lib/forex.ts).
+    ...(opts.bust ? { _bust: Date.now() } : {}),
+  }).then((candles) => candles.map((c) => ({ ...c, date: exchangeLocalToUtcIso(c.date, tz) })));
+};
+
+/**
+ * Forex/macro news: yfinance has no dedicated forex feed, but company-news on
+ * FX/metals tickers returns genuinely currency-relevant headlines (Fed, dollar,
+ * gold). Aggregate a basket, dedupe, sort newest-first. No API key required.
+ */
+const FX_NEWS_SYMBOLS = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F", "DX-Y.NYB"];
+export async function fetchForexNews(limit = 40): Promise<NewsItem[]> {
+  const batches = await Promise.all(
+    FX_NEWS_SYMBOLS.map((s) =>
+      fetchNewsCompany(s, 15).catch(() => [] as NewsItem[])
+    )
+  );
+  const seen = new Set<string>();
+  const merged: NewsItem[] = [];
+  for (const batch of batches) {
+    for (const n of batch) {
+      const key = (n.url || n.title || "").trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(n);
+    }
+  }
+  merged.sort((a, b) => (a.date > b.date ? -1 : 1));
+  return merged.slice(0, limit);
+}
 
 export const fetchCryptoHistorical = (sym: string, days = 30) => {
   const start = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
@@ -164,3 +251,183 @@ export const fetchCryptoHistorical = (sym: string, days = 30) => {
 
 export const searchSymbols = (q: string, limit = 8) =>
   get<SearchResult[]>("/equity/search", { query: q, provider: "sec", limit, is_symbol: false });
+
+// ────── Batched quotes (Quote Cards / Heatmap) ──────
+/**
+ * Batched multi-symbol quotes. The yfinance quote endpoint accepts a
+ * comma-separated symbol list, so we chunk the universe into a handful of
+ * requests instead of one-per-ticker. Failed chunks are skipped, not fatal —
+ * a partial board is better than none. Callers derive % change from
+ * (last_price - prev_close) / prev_close.
+ */
+export async function fetchQuotes(symbols: string[], chunk = 40): Promise<Quote[]> {
+  const uniq = Array.from(new Set(symbols.filter(Boolean)));
+  const chunks: string[][] = [];
+  for (let i = 0; i < uniq.length; i += chunk) chunks.push(uniq.slice(i, i + chunk));
+  const batches = await Promise.all(
+    chunks.map((c) =>
+      get<Quote[] | Quote>("/equity/price/quote", { symbol: c.join(","), provider: "yfinance" })
+        .then((r) => (Array.isArray(r) ? r : [r]))
+        .catch(() => [] as Quote[])
+    )
+  );
+  return batches.flat();
+}
+
+// ────── Commodities ──────
+/** Daily history for a commodity future (routes through the equity endpoint). */
+export const fetchCommodityHistorical = (sym: string, days = 30) => {
+  const start = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+  return get<Candle[]>("/equity/price/historical", {
+    symbol: sym, provider: "yfinance", interval: "1d", start_date: start,
+  });
+};
+
+// ────── Extended-hours (after-hours / pre-market) proxy ──────
+/**
+ * Intraday candles for a tracking ETF *including* pre/post-market, used to
+ * approximate an index's extended-hours move (indices themselves don't trade
+ * after the bell). Returns the raw candle series; `extendedHoursMove` derives
+ * the after-hours %.
+ */
+export const fetchEtfExtended = (sym: string, days = 2) => {
+  const start = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+  return get<Candle[]>("/equity/price/historical", {
+    symbol: sym, provider: "yfinance", interval: "15m",
+    start_date: start, extended_hours: true,
+  });
+};
+
+/** Hour-of-day (0-23) at a US-market wall clock for an ISO timestamp. */
+function etHour(iso: string): number {
+  try {
+    const h = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", hour: "2-digit", hour12: false,
+    }).formatToParts(new Date(iso)).find((p) => p.type === "hour")?.value;
+    const n = h === "24" ? 0 : Number(h);
+    return Number.isFinite(n) ? n : -1;
+  } catch { return -1; }
+}
+
+export interface ExtendedHours {
+  /** last traded price including post-market */
+  last?: number;
+  /** the 16:00 ET regular-session close on the latest day */
+  regularClose?: number;
+  /** after-hours % vs the regular close */
+  changePct?: number;
+  /** "pre" (before 09:30) or "post" (after 16:00), when applicable */
+  session?: "pre" | "post";
+}
+
+/**
+ * Derive the extended-hours move from an ETF's extended intraday series.
+ * Regular close = last candle on the latest day at/before 16:00 ET; the
+ * after-hours print is any candle after it. Returns empty fields when the
+ * provider gives no extended candles (common during regular hours / weekends).
+ */
+export function extendedHoursMove(candles?: Candle[]): ExtendedHours {
+  if (!candles || candles.length === 0) return {};
+  const lastDay = candles[candles.length - 1].date.slice(0, 10);
+  const day = candles.filter((c) => c.date.slice(0, 10) === lastDay);
+  let regularClose: number | undefined;
+  let afterIdx = -1;
+  for (let i = 0; i < day.length; i++) {
+    const h = etHour(day[i].date);
+    if (h >= 0 && h < 16) { regularClose = day[i].close; }
+    else if (h >= 16 && afterIdx === -1) { afterIdx = i; }
+  }
+  const lastC = day[day.length - 1];
+  const lastH = etHour(lastC.date);
+  const isExtended = lastH >= 16 || lastH < 9;
+  if (!isExtended || regularClose == null) return { regularClose };
+  const last = lastC.close;
+  const changePct = ((last - regularClose) / regularClose) * 100;
+  return { last, regularClose, changePct, session: lastH < 9 ? "pre" : "post" };
+}
+
+// ────── Spot metals (Twelve Data) ──────
+// GC=F/SI=F on the equity endpoint are COMEX *futures*, not spot — they
+// track XAU/USD closely but carry a basis premium that made the scalper/
+// board/tape numbers not match GP's TradingView chart (which reads real
+// OANDA spot). Twelve Data's free tier serves real spot XAU/USD directly
+// (verified against the live API); XAG/USD 404s on the free tier ("Grow or
+// Venture plan" required), so silver stays on SI=F futures.
+export const SPOT_GOLD_SYMBOL = "XAU/USD";
+
+export interface SpotQuote {
+  symbol: string;
+  last?: number;
+  open?: number;
+  high?: number;
+  low?: number;
+  prevClose?: number;
+  /** real Unix-epoch ISO timestamp of the quote — Twelve Data's `last_quote_at`
+   * is a true epoch second, unlike yfinance's naive exchange-local strings. */
+  asOf?: string;
+}
+
+export const fetchSpotQuote = async (symbol: string): Promise<SpotQuote> => {
+  const res = await fetch(`/spot-proxy/quote?symbol=${encodeURIComponent(symbol)}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.results) {
+    throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load spot quote");
+  }
+  const r = body.results;
+  const num = (v: unknown) => (v == null ? undefined : Number(v));
+  return {
+    symbol: r.symbol ?? symbol,
+    last: num(r.close),
+    open: num(r.open),
+    high: num(r.high),
+    low: num(r.low),
+    prevClose: num(r.previous_close),
+    asOf: r.last_quote_at ? new Date(r.last_quote_at * 1000).toISOString() : undefined,
+  };
+};
+
+/** OHLC candle series for a spot symbol (ATR only — the day-range numbers
+ * come from fetchSpotQuote, which is cheaper on Twelve Data's rate limit). */
+export const fetchSpotSeries = async (symbol: string, interval = "5min"): Promise<Candle[]> => {
+  const res = await fetch(`/spot-proxy/series?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}`);
+  const body = await res.json().catch(() => ({}));
+  const values = body?.results?.values;
+  if (!res.ok || !Array.isArray(values)) {
+    throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load spot series");
+  }
+  return values
+    .slice()
+    .reverse() // Twelve Data returns newest-first; candle consumers (ATR) expect chronological order
+    .map((v: Record<string, string>) => ({
+      date: v.datetime,
+      open: Number(v.open), high: Number(v.high), low: Number(v.low), close: Number(v.close),
+      volume: 0,
+    }));
+};
+
+// ────── COT (Commitments of Traders) — gold ──────
+export interface CotSnapshot {
+  /** date of the CFTC Tuesday snapshot this report covers */
+  asOf: string;
+  openInterest: number;
+  nonCommercialLong: number;
+  nonCommercialShort: number;
+  /** week-over-week change vs the prior report */
+  nonCommercialLongChange: number;
+  nonCommercialShortChange: number;
+}
+
+/**
+ * Gold COT positioning (legacy futures-only report, Non-Commercial /
+ * "large speculator" category), sourced from Tradingster's CFTC mirror via
+ * the dev-server proxy in vite.config.ts (Tradingster's page has no API and
+ * no CORS headers, so this can't be fetched directly from the browser).
+ */
+export const fetchGoldCot = async (): Promise<CotSnapshot> => {
+  const res = await fetch("/cot-proxy/gold");
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.results) {
+    throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load COT data");
+  }
+  return body.results as CotSnapshot;
+};

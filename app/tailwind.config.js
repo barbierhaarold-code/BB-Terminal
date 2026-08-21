@@ -5,7 +5,7 @@ export default {
     extend: {
       fontFamily: {
         mono: [
-          "JetBrains Mono",
+          "IBM Plex Mono",
           "ui-monospace",
           "SFMono-Regular",
           "SF Mono",
@@ -29,10 +29,10 @@ export default {
           panel2: "#1a1a1a",
           border: "#2a2a2a",
           borderSoft: "#1f1f1f",
-          amber: "#ff8c00",
-          amberDim: "#a55f00",
-          amberBright: "#ffaa33",
-          amberSubtle: "rgba(255,140,0,0.08)",
+          amber: "#b45cff",
+          amberDim: "#6d2ea6",
+          amberBright: "#cd93ff",
+          amberSubtle: "rgba(180,92,255,0.08)",
           green: "#22ee22",
           greenDim: "#128812",
           red: "#ff3b3b",
@@ -44,7 +44,7 @@ export default {
         },
       },
       boxShadow: {
-        panel: "0 0 0 1px rgba(255,140,0,0.05), 0 6px 20px -10px rgba(0,0,0,0.8)",
+        panel: "0 0 0 1px rgba(180,92,255,0.05), 0 6px 20px -10px rgba(0,0,0,0.8)",
       },
     },
   },
