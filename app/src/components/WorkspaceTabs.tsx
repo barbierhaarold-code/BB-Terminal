@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useWorkspace } from "@/store/workspaceStore";
+import { FN_BY_CODE } from "@/lib/functions";
 import { cn } from "@/lib/cn";
 
 export function WorkspaceTabs() {
@@ -9,10 +10,12 @@ export function WorkspaceTabs() {
     <div className="flex h-7 bg-term-bg2 border-b border-term-border overflow-x-auto scroll-thin">
       {tabs.map((t) => {
         const isActive = t.id === activeTabId;
-        const label = t.symbol ? `${t.symbol} · ${t.code}` : t.code;
+        const name = FN_BY_CODE[t.code]?.name ?? t.code;
+        const label = t.symbol ? `${t.symbol} · ${name}` : name;
         return (
           <div
             key={t.id}
+            title={t.code}
             onClick={() => setActiveTab(t.id)}
             className={cn(
               "flex items-center gap-2 h-full px-3 cursor-pointer border-r border-term-border text-[11px] tracking-wider uppercase whitespace-nowrap",

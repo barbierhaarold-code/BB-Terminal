@@ -10,7 +10,7 @@ export function HELP() {
   return (
     <div className="p-4 flex flex-col gap-5 text-[12px]">
       <div>
-        <div className="text-term-amber text-[11px] tracking-[0.25em] font-bold mb-1">WELCOME TO BBTERMINAL</div>
+        <div className="text-term-amber text-[11px] tracking-[0.25em] font-bold mb-1">WELCOME TO ABDEL KHADER</div>
         <div className="text-term-text">
           Type a function code in the command bar above, optionally prefixed with a ticker, then press
           <span className="text-term-amber font-bold mx-1">&lt;GO&gt;</span>
@@ -21,7 +21,7 @@ export function HELP() {
           <code className="text-term-amberBright">CC</code>&nbsp;(dashboard)&nbsp;·&nbsp;
           <code className="text-term-amberBright">AAPL</code>&nbsp;(intel scorecard)&nbsp;·&nbsp;
           <code className="text-term-amberBright">TSLA OMON</code>&nbsp;·&nbsp;
-          <code className="text-term-amberBright">WEI</code>&nbsp;·&nbsp;
+          <code className="text-term-amberBright">FXC</code>&nbsp;(forex)&nbsp;·&nbsp;
           <code className="text-term-amberBright">CURV</code>
         </div>
       </div>

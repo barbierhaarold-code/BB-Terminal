@@ -3,13 +3,14 @@ export type FunctionCode =
   | "DES" | "GP" | "QR" | "HP"
   | "FA" | "KEY" | "DVD" | "EE" | "NI"
   | "WEI" | "MOV" | "OMON"
-  | "CURV" | "FXC" | "CRYPTO";
+  | "CURV" | "FXC" | "CRYPTO"
+  | "QCARD" | "HEAT" | "TRACK";
 
 export interface FunctionDef {
   code: FunctionCode;
   name: string;
   needsSymbol: boolean;
-  group: "Security" | "Markets" | "Macro" | "System";
+  group: "Security" | "Markets" | "Macro" | "System" | "Journal";
   summary: string;
 }
 
@@ -32,9 +33,13 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "WEI",  name: "World Equity Indices",  needsSymbol: false, group: "Markets", summary: "Major global indices — level & daily change" },
   { code: "MOV",  name: "Market Movers",         needsSymbol: false, group: "Markets", summary: "US gainers, losers, most active" },
   { code: "CRYPTO", name: "Crypto Monitor",      needsSymbol: false, group: "Markets", summary: "Top crypto prices + sparkline" },
-  { code: "FXC",  name: "FX Cross Rates",        needsSymbol: false, group: "Markets", summary: "Major FX pairs matrix" },
+  { code: "FXC",  name: "Forex Center",          needsSymbol: false, group: "Markets", summary: "Majors, crosses, gold/silver, sessions clock, FX news" },
+  { code: "QCARD", name: "Quote Cards",          needsSymbol: false, group: "Markets", summary: "Filterable ticker cards — price, change, sparkline, favorites" },
+  { code: "HEAT", name: "Market Heatmap",        needsSymbol: false, group: "Markets", summary: "Sector→industry→ticker treemap, sized by cap, colored by change" },
 
   { code: "CURV", name: "US Yield Curve",        needsSymbol: false, group: "Macro", summary: "Treasury par yield curve" },
+
+  { code: "TRACK", name: "Track Record",         needsSymbol: false, group: "Journal", summary: "Trading journal — manual log, bulk import, setups, performance stats" },
 ];
 
 export const FN_BY_CODE: Record<string, FunctionDef> = Object.fromEntries(FUNCTIONS.map((f) => [f.code, f]));

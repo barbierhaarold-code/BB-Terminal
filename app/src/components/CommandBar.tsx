@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { parseCommand, FUNCTIONS } from "@/lib/functions";
 import { useWorkspace } from "@/store/workspaceStore";
+import { GlobalSearch } from "@/components/GlobalSearch";
 import { cn } from "@/lib/cn";
 
 export function CommandBar() {
@@ -50,14 +51,34 @@ export function CommandBar() {
 
   return (
     <div className="flex items-center h-10 bg-term-panel border-b border-term-border px-3 gap-4">
-      <div className="flex items-center gap-2 select-none">
-        <span className="w-1.5 h-1.5 bg-term-amber shadow-[0_0_6px_rgba(255,140,0,0.9)]" />
-        <span className="text-term-amber font-bold tracking-[0.3em] text-[11px]">BBTERMINAL</span>
+      <div className="flex items-center gap-2 select-none shrink-0">
+        <span className="w-1.5 h-1.5 bg-term-amber shadow-[0_0_6px_rgba(180,92,255,0.9)]" />
+        <span className="text-term-amber font-bold tracking-[0.3em] text-[11px]">ABDEL KHADER</span>
       </div>
 
-      <div className="flex items-center gap-2 flex-1 relative">
-        <span className="text-term-amberDim text-[11px] uppercase tracking-widest">CMD</span>
-        <span className="text-term-amber">{">"}</span>
+      {/* Primary, always-visible way to find an instrument — equity, forex
+          pair, metal, or crypto — without knowing a function code. */}
+      <GlobalSearch />
+
+      {/* Active ticker context — the symbol GP/KEY/FA/etc. carry when opened
+          from a stock page. Made a standalone badge (not buried in the hint
+          text on the right) so switching context is visible, not implicit. */}
+      <button
+        onClick={() => activeSymbol && openTab("INTEL", activeSymbol)}
+        title="Active ticker context — carries into GP, KEY, FA, DES, etc. Click to open INTEL."
+        className="flex items-center gap-1.5 px-2.5 py-1 border border-term-amberDim bg-term-amberSubtle shrink-0 hover:border-term-amber transition-colors"
+      >
+        <span className="text-[9px] uppercase tracking-[0.18em] text-term-muted">CTX</span>
+        <span className="text-term-amber font-bold text-[13px] num tracking-wider">{activeSymbol ?? "—"}</span>
+      </button>
+
+      {/* Power-user command prompt — typed function codes (CC, GP, KEY…),
+          optionally prefixed/suffixed with a symbol. Demoted in width/weight
+          now that GlobalSearch is the primary discovery surface, but fully
+          functional — codes still work here for anyone who wants them. */}
+      <div className="flex items-center gap-1.5 relative shrink-0 w-[220px]">
+        <span className="text-term-amberDim text-[10px] uppercase tracking-widest">CMD</span>
+        <span className="text-term-amberDim text-[11px]">{">"}</span>
         <input
           ref={inputRef}
           value={input}
@@ -81,17 +102,17 @@ export function CommandBar() {
               setInput([...rest, suggestions[suggestIdx].code].join(" ") + " ");
             }
           }}
-          placeholder="TRY:  AAPL   |   TSLA INTEL   |   CC   |   WEI   |   MOV   |   HELP"
+          placeholder="function code…"
           spellCheck={false}
           autoCapitalize="characters"
-          className="flex-1 bg-transparent uppercase text-term-amberBright placeholder:text-term-muted focus:outline-none text-[13px] tracking-wider"
+          className="flex-1 min-w-0 bg-transparent uppercase text-term-amberBright placeholder:text-term-muted focus:outline-none text-[12px] tracking-wider"
         />
-        <span className="text-term-amber text-[11px] font-bold px-2 py-0.5 border border-term-amberDim hover:bg-term-amberSubtle cursor-pointer select-none" onClick={run}>
-          &lt;GO&gt;
+        <span className="text-term-amber text-[10px] font-bold px-1.5 py-0.5 border border-term-amberDim hover:bg-term-amberSubtle cursor-pointer select-none shrink-0" onClick={run}>
+          GO
         </span>
 
         {suggestions.length > 0 && (
-          <div className="absolute top-full left-24 mt-1 z-50 bg-term-panel border border-term-border shadow-panel min-w-[360px]">
+          <div className="absolute top-full right-0 mt-1 z-50 bg-term-panel border border-term-border shadow-panel min-w-[360px]">
             {suggestions.map((f, i) => (
               <div
                 key={f.code}
@@ -111,13 +132,7 @@ export function CommandBar() {
         )}
       </div>
 
-      <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.18em] text-term-muted">
-        {err && <span className="text-term-red">{err}</span>}
-        <span>CTX</span>
-        <span className="text-term-amber font-bold">{activeSymbol ?? "—"}</span>
-        <span className="text-term-muted">·</span>
-        <span>↑↓ history   ⇥ autocomplete</span>
-      </div>
+      {err && <span className="text-term-red text-[10px] uppercase tracking-[0.18em] shrink-0">{err}</span>}
     </div>
   );
 }

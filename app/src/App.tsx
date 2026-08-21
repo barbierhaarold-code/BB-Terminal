@@ -3,6 +3,7 @@ import { CommandBar } from "@/components/CommandBar";
 import { QuickBar } from "@/components/QuickBar";
 import { WorkspaceTabs } from "@/components/WorkspaceTabs";
 import { StatusBar } from "@/components/StatusBar";
+import { TickerTape } from "@/components/TickerTape";
 import { FunctionPanel } from "@/components/FunctionPanel";
 import { useWorkspace } from "@/store/workspaceStore";
 import { FUNCTIONS } from "@/lib/functions";
@@ -25,6 +26,9 @@ import { OMON } from "@/functions/OMON";
 import { CURV } from "@/functions/CURV";
 import { FXC } from "@/functions/FXC";
 import { CRYPTO } from "@/functions/CRYPTO";
+import { QCARD } from "@/functions/QCARD";
+import { HEAT } from "@/functions/HEAT";
+import { TRACK } from "@/functions/TRACK";
 
 const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   CC: () => <CC />,
@@ -45,6 +49,9 @@ const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   CURV: () => <CURV />,
   FXC: () => <FXC />,
   CRYPTO: () => <CRYPTO />,
+  QCARD: () => <QCARD />,
+  HEAT: () => <HEAT />,
+  TRACK: () => <TRACK />,
 };
 
 export default function App() {
@@ -64,6 +71,7 @@ export default function App() {
           </FunctionPanel>
         )}
       </div>
+      <TickerTape />
       <StatusBar />
     </div>
   );
