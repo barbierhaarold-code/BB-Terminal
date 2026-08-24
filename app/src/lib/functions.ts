@@ -1,7 +1,7 @@
 export type FunctionCode =
   | "CC" | "INTEL" | "HELP"
   | "DES" | "GP" | "QR" | "HP"
-  | "FA" | "KEY" | "DVD" | "EE" | "NI"
+  | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
   | "QCARD" | "HEAT" | "TRACK" | "NH";
@@ -19,6 +19,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "HELP", name: "Function Directory",    needsSymbol: false, group: "System", summary: "List of all terminal functions" },
 
   { code: "INTEL", name: "Stock Intelligence",   needsSymbol: true,  group: "Security", summary: "Full scorecard — signals across technical, value, fundamentals, analysts" },
+  { code: "RESEARCH", name: "Equity Research",   needsSymbol: true,  group: "Security", summary: "Deep-dive workspace — DCF, fundamentals grade, financials, ownership, ratings, peers" },
   { code: "DES",  name: "Security Description", needsSymbol: true,  group: "Security", summary: "Company profile, sector, HQ, employees" },
   { code: "GP",   name: "Graph / Chart",         needsSymbol: true,  group: "Security", summary: "Historical candlestick chart + volume" },
   { code: "QR",   name: "Quote Recap",           needsSymbol: true,  group: "Security", summary: "Live quote: last, bid/ask, volume, day range" },

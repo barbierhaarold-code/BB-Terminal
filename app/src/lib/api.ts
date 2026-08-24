@@ -516,6 +516,79 @@ export const fetchStockSplits = (startDate: string, endDate: string) =>
     start_date: startDate, end_date: endDate,
   });
 
+// ────── Balance sheet / cash flow (Equity Research deep-dive) ──────
+// Free via yfinance — no key required. Powers the DCF/Intrinsic Value
+// valuation module and the balance-sheet decomposition visual.
+export interface BalanceRow {
+  period_ending: string;
+  total_assets?: number; total_current_assets?: number; total_non_current_assets?: number;
+  total_liabilities_net_minority_interest?: number; current_liabilities?: number;
+  total_non_current_liabilities_net_minority_interest?: number;
+  total_common_equity?: number; common_stock_equity?: number;
+  cash_and_cash_equivalents?: number; total_debt?: number; net_debt?: number;
+  ordinary_shares_number?: number; tangible_book_value?: number; working_capital?: number;
+}
+export const fetchBalance = (s: string, limit = 5) =>
+  get<BalanceRow[]>("/equity/fundamental/balance", { symbol: s, provider: "yfinance", period: "annual", limit });
+
+export interface CashFlowRow {
+  period_ending: string;
+  operating_cash_flow?: number; capital_expenditure?: number; free_cash_flow?: number;
+  depreciation_and_amortization?: number; stock_based_compensation?: number;
+  cash_dividends_paid?: number; repurchase_of_common_equity?: number;
+}
+export const fetchCashFlow = (s: string, limit = 5) =>
+  get<CashFlowRow[]>("/equity/fundamental/cash", { symbol: s, provider: "yfinance", period: "annual", limit });
+
+// ────── Peers (Equity Research — Peers tab) ──────
+// Free on the FMP tier this app has configured (verified live — unlike
+// major_holders/institutional/price_target below, this specific endpoint
+// is not premium-gated).
+export interface PeerQuote { symbol: string; name?: string; price?: number; market_cap?: number; }
+export const fetchPeers = (s: string) =>
+  get<PeerQuote[]>("/equity/compare/peers", { symbol: s, provider: "fmp" });
+
+// ────── Analyst rating changes (Equity Research — Ratings tab) ──────
+// finviz is free (no key) and covers upgrade/downgrade history with firm
+// name + date; fmp's equivalent endpoint is restricted on the free tier
+// (verified live — 402 "Restricted Endpoint").
+export interface RatingChange {
+  published_date: string; symbol: string;
+  price_target?: number | null; adj_price_target?: number;
+  status?: string; rating_change?: string; analyst_company?: string;
+}
+export const fetchRatingChanges = (s: string, limit = 30) =>
+  get<RatingChange[]>("/equity/estimates/price_target", { symbol: s, provider: "finviz", limit });
+
+// ────── Ownership (Equity Research — Ownership tab) ──────
+// Insider transactions are free via SEC (Form 4 filings, no key).
+export interface InsiderTx {
+  symbol: string; filing_date: string; transaction_date?: string;
+  owner_name?: string; owner_title?: string; transaction_type?: string;
+  acquisition_or_disposition?: string; securities_owned?: number;
+  securities_transacted?: number; transaction_price?: number;
+  form?: string; officer?: boolean; director?: boolean; filing_url?: string;
+}
+export const fetchInsiderTrading = (s: string, limit = 50) =>
+  get<InsiderTx[]>("/equity/ownership/insider_trading", { symbol: s, provider: "sec", limit });
+
+/**
+ * Ownership %, short interest, and institution count — all free via
+ * yfinance's share_statistics. This covers the institutional/insider/public
+ * split without needing the paid FMP major_holders/institutional endpoints
+ * (verified live — those 402 "Restricted Endpoint" on the free tier).
+ */
+export interface ShareStatistics {
+  symbol: string; date?: string;
+  float_shares?: number; outstanding_shares?: number;
+  short_interest?: number; short_percent_of_float?: number; days_to_cover?: number;
+  insider_ownership?: number; institution_ownership?: number;
+  institution_float_ownership?: number; institutions_count?: number;
+}
+export const fetchShareStatistics = (s: string) =>
+  get<ShareStatistics[] | ShareStatistics>("/equity/ownership/share_statistics", { symbol: s, provider: "yfinance" })
+    .then((r) => (Array.isArray(r) ? r[0] : r));
+
 /** Effective Federal Funds Rate, daily — free via the Fed's own H.15
  * release (no key). Used as the "R_before" anchor for the FedWatch calc. */
 export interface EffrPoint {

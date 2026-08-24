@@ -13,10 +13,12 @@ export function fmtInt(v: number | null | undefined) {
 
 export function fmtVolume(v: number | null | undefined) {
   if (v == null || Number.isNaN(v)) return "—";
-  if (v >= 1e12) return (v / 1e12).toFixed(2) + "T";
-  if (v >= 1e9) return (v / 1e9).toFixed(2) + "B";
-  if (v >= 1e6) return (v / 1e6).toFixed(2) + "M";
-  if (v >= 1e3) return (v / 1e3).toFixed(2) + "K";
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return sign + (abs / 1e12).toFixed(2) + "T";
+  if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + "B";
+  if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + "M";
+  if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + "K";
   return v.toString();
 }
 
