@@ -29,7 +29,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "DVD",  name: "Dividend History",      needsSymbol: true,  group: "Security", summary: "All historical dividends" },
   { code: "EE",   name: "Analyst Estimates",     needsSymbol: true,  group: "Security", summary: "Target prices, recommendation, analyst count" },
   { code: "NI",   name: "News — Company",        needsSymbol: true,  group: "Security", summary: "Latest headlines for the symbol" },
-  { code: "OMON", name: "Options Monitor",       needsSymbol: true,  group: "Security", summary: "Options chain with bid/ask, IV, OI, volume" },
+  { code: "OMON", name: "Options Monitor",       needsSymbol: true,  group: "Security", summary: "Options chain, expected range, IV, open interest, unusual activity, Greeks exposure" },
 
   { code: "WEI",  name: "World Equity Indices",  needsSymbol: false, group: "Markets", summary: "Major global indices — level & daily change" },
   { code: "MOV",  name: "Market Movers",         needsSymbol: false, group: "Markets", summary: "US gainers, losers, most active" },
