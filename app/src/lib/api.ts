@@ -459,3 +459,101 @@ export const fetchGoldCot = async (): Promise<CotSnapshot> => {
   }
   return body.results as CotSnapshot;
 };
+
+// ────── News Hub — Pass 2 calendars ──────
+// All free via `nasdaq`/`federal_reserve`/`yfinance` providers — no API key.
+export interface EconCalendarEvent {
+  date: string; country: string; event: string;
+  actual?: string; consensus?: string; previous?: string; description?: string;
+}
+export const fetchEconCalendar = (startDate: string, endDate: string) =>
+  get<EconCalendarEvent[]>("/economy/calendar", {
+    provider: "nasdaq", start_date: startDate, end_date: endDate,
+  });
+
+export interface EarningsEvent {
+  report_date: string; symbol: string; name?: string;
+  eps_previous?: number; eps_consensus?: number; num_estimates?: number;
+  period_ending?: string; reporting_time?: "pre-market" | "after-hours" | "not-supplied";
+  market_cap?: number;
+}
+export const fetchEarningsCalendar = (startDate: string, endDate: string) =>
+  get<EarningsEvent[]>("/equity/calendar/earnings", {
+    provider: "nasdaq", start_date: startDate, end_date: endDate,
+  });
+
+export interface DividendCalendarEvent {
+  ex_dividend_date: string; symbol: string; name?: string; amount: number;
+  record_date?: string; payment_date?: string; declaration_date?: string;
+  annualized_amount?: number;
+}
+export const fetchDividendCalendar = (startDate: string, endDate: string) =>
+  get<DividendCalendarEvent[]>("/equity/calendar/dividend", {
+    provider: "nasdaq", start_date: startDate, end_date: endDate,
+  });
+
+export interface IpoCalendarEvent {
+  symbol?: string; ipo_date: string; name?: string;
+  offer_amount?: number; share_count?: number; share_price?: string;
+  deal_status?: string; exchange?: string;
+}
+export const fetchIpoCalendar = (startDate: string, endDate: string) =>
+  get<IpoCalendarEvent[]>("/equity/calendar/ipo", {
+    provider: "nasdaq", start_date: startDate, end_date: endDate,
+  });
+
+/** Stock splits calendar — OpenBB only exposes this via `fmp`, which needs a
+ * paid/free-tier `fmp_api_key` (set `OPENBB_FMP_API_KEY` before starting
+ * openbb-api). Left wired against the real endpoint so it lights up the
+ * moment a key is added; throws a typed ApiError with `needsKey` set until
+ * then, which CorporatePanel renders as an explicit gap, not fake data. */
+export interface StockSplitEvent {
+  date: string; symbol: string; name?: string;
+  old_shares?: number; new_shares?: number;
+}
+export const fetchStockSplits = (startDate: string, endDate: string) =>
+  get<StockSplitEvent[]>("/equity/calendar/splits", {
+    start_date: startDate, end_date: endDate,
+  });
+
+/** Effective Federal Funds Rate, daily — free via the Fed's own H.15
+ * release (no key). Used as the "R_before" anchor for the FedWatch calc. */
+export interface EffrPoint {
+  date: string; rate: number; target_range_upper?: number; target_range_lower?: number;
+}
+export const fetchEffr = (startDate: string) =>
+  get<EffrPoint[]>("/fixedincome/rate/effr", { provider: "federal_reserve", start_date: startDate });
+
+/** 30-Day Fed Funds futures (CBOT symbol ZQ) curve — free via yfinance.
+ * Price = 100 - implied average daily EFFR for that contract month; this is
+ * the same raw input CME's FedWatch tool is built on. */
+export interface FuturesCurvePoint { expiration: string; price: number; }
+export const fetchFedFundsCurve = () =>
+  get<FuturesCurvePoint[]>("/derivatives/futures/curve", { symbol: "ZQ", provider: "yfinance" });
+
+/** Historical close for one ZQ contract month, used to reconstruct what the
+ * implied odds looked like as of a past date (e.g. right after the last
+ * FOMC meeting), so FedWatchPanel can show how odds have shifted since. */
+export const fetchFedFundsContractHistory = (expirationYYYYMM: string, startDate: string, endDate: string) =>
+  get<Candle[]>("/derivatives/futures/historical", {
+    symbol: "ZQ", provider: "yfinance", expiration: expirationYYYYMM,
+    start_date: startDate, end_date: endDate, interval: "1d",
+  });
+
+// ────── Prediction markets (Polymarket) ──────
+// Public read-only Gamma API, no key — but no CORS headers either, so it's
+// fetched through the dev-server proxy in vite.config.ts, same pattern as
+// the COT/spot-metals proxies above.
+export interface PredictionMarket {
+  id: string; question: string; category: string;
+  probability: number; probabilityWeekAgo?: number;
+  volume: number; liquidity: number; resolveDate: string; url: string;
+}
+export const fetchPredictionMarkets = async (): Promise<PredictionMarket[]> => {
+  const res = await fetch("/polymarket-proxy/events");
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !Array.isArray(body.results)) {
+    throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load prediction markets");
+  }
+  return body.results as PredictionMarket[];
+};

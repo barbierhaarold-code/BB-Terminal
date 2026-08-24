@@ -4,7 +4,11 @@ import { NewsPanel } from "./newshub/NewsPanel";
 import { TweetsPanel } from "./newshub/TweetsPanel";
 import { MarketHoursPanel } from "./newshub/MarketHoursPanel";
 import { LiveTvPanel } from "./newshub/LiveTvPanel";
-import { ComingSoon } from "./newshub/ComingSoon";
+import { EconCalendarPanel } from "./newshub/EconCalendarPanel";
+import { EarningsPanel } from "./newshub/EarningsPanel";
+import { CorporatePanel } from "./newshub/CorporatePanel";
+import { PredictionMarketsPanel } from "./newshub/PredictionMarketsPanel";
+import { FedWatchPanel } from "./newshub/FedWatchPanel";
 
 type Tab =
   | "news" | "tweets" | "econ" | "earnings" | "corporate"
@@ -46,21 +50,11 @@ export function NH() {
         {tab === "tweets" && <TweetsPanel />}
         {tab === "hours" && <MarketHoursPanel />}
         {tab === "tv" && <LiveTvPanel />}
-        {tab === "econ" && (
-          <ComingSoon label="Economic Calendar" note="Needs a free-tier provider decision (TradingEconomics/FMP) or confirmed OpenBB coverage — see 03-news-hub.md Pass 2." />
-        )}
-        {tab === "earnings" && (
-          <ComingSoon label="Earnings" note="Week-view earnings calendar with sector/index filters — Pass 2, not yet built." />
-        )}
-        {tab === "corporate" && (
-          <ComingSoon label="Corporate" note="Dividends/splits are likely free via Yahoo through OpenBB; IPO calendar and lock-up expiry are a probable gap — Pass 2, not yet built." />
-        )}
-        {tab === "predictions" && (
-          <ComingSoon label="Prediction Markets" note="Polymarket and Kalshi both publish free public read APIs — good first option, not yet wired. Pass 2." />
-        )}
-        {tab === "fedwatch" && (
-          <ComingSoon label="Fed Ops / FedWatch" note="Needs a research pass on whether OpenBB's fixed-income/economy modules can derive rate-cut/hold/hike odds from Fed funds futures — Pass 2." />
-        )}
+        {tab === "econ" && <EconCalendarPanel />}
+        {tab === "earnings" && <EarningsPanel />}
+        {tab === "corporate" && <CorporatePanel />}
+        {tab === "predictions" && <PredictionMarketsPanel />}
+        {tab === "fedwatch" && <FedWatchPanel />}
       </div>
     </div>
   );

@@ -402,6 +402,107 @@ function getXApiProxyPlugin(apiKey: string | undefined): Plugin {
   };
 }
 
+// ────────────────────────────────────────────────────────────
+// Polymarket Gamma API proxy (Prediction Markets tab) — public read-only,
+// no key, but no CORS headers either (verified: no `access-control-*`
+// header on a direct curl), so it has to be proxied server-side like the
+// COT scrape above. Pulls a curated set of tag_slugs (Fed decisions,
+// macro/geopolitical events) rather than raw top-volume, which on
+// Polymarket is dominated by sports and single-day crypto-price markets —
+// verified directly against the live API.
+const POLYMARKET_TAGS = ["fed", "interest-rates", "economy", "recession", "geopolitics", "international-affairs", "elections"];
+const POLYMARKET_TTL_MS = 3 * 60_000;
+
+interface PolymarketSubMarket {
+  question: string; outcomes: string; outcomePrices: string;
+  oneWeekPriceChange?: number; volume?: string; liquidity?: string;
+  slug: string; endDate?: string;
+}
+interface PolymarketEvent {
+  id: string; title: string; slug: string; endDate?: string;
+  volume?: number; liquidity?: number; markets?: PolymarketSubMarket[];
+}
+
+function polymarketEventToRow(e: PolymarketEvent, tag: string) {
+  const m = e.markets?.[0];
+  if (!m) return null;
+  let yesPrice: number | undefined;
+  try {
+    const outcomes: string[] = JSON.parse(m.outcomes ?? "[]");
+    const prices: string[] = JSON.parse(m.outcomePrices ?? "[]");
+    const yesIdx = outcomes.findIndex((o) => o.toLowerCase() === "yes");
+    yesPrice = Number(prices[yesIdx >= 0 ? yesIdx : 0]);
+  } catch {
+    return null;
+  }
+  if (yesPrice == null || Number.isNaN(yesPrice)) return null;
+  const weekChange = typeof m.oneWeekPriceChange === "number" ? m.oneWeekPriceChange : undefined;
+  return {
+    id: e.id,
+    question: e.title,
+    category: tag,
+    probability: yesPrice,
+    probabilityWeekAgo: weekChange != null ? yesPrice - weekChange : undefined,
+    volume: e.volume ?? Number(m.volume ?? 0),
+    liquidity: e.liquidity ?? Number(m.liquidity ?? 0),
+    resolveDate: e.endDate ?? m.endDate ?? "",
+    url: `https://polymarket.com/event/${e.slug}`,
+  };
+}
+
+function predictionMarketsProxyPlugin(): Plugin {
+  let cache: { body: string; expires: number } | null = null;
+
+  async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
+    if (req.url !== "/polymarket-proxy/events" || req.method !== "GET") { next(); return; }
+
+    res.setHeader("content-type", "application/json");
+    const now = Date.now();
+    if (cache && cache.expires > now) {
+      res.setHeader("x-bbterminal-cache", "HIT");
+      res.end(cache.body);
+      return;
+    }
+
+    try {
+      const perTag = await Promise.all(
+        POLYMARKET_TAGS.map(async (tag) => {
+          const url = `https://gamma-api.polymarket.com/events?closed=false&limit=8&tag_slug=${encodeURIComponent(tag)}&order=volume24hr&ascending=false`;
+          const upstream = await fetch(url);
+          if (!upstream.ok) return [];
+          const json = (await upstream.json().catch(() => [])) as PolymarketEvent[];
+          return Array.isArray(json) ? json.map((e) => polymarketEventToRow(e, tag)) : [];
+        })
+      );
+      const seen = new Set<string>();
+      const merged = perTag
+        .flat()
+        .filter((r): r is NonNullable<typeof r> => r != null)
+        .filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)))
+        .sort((a, b) => b.volume - a.volume)
+        .slice(0, 24);
+      const body = JSON.stringify({ results: merged });
+      cache = { body, expires: now + POLYMARKET_TTL_MS };
+      res.setHeader("x-bbterminal-cache", "MISS");
+      res.end(body);
+    } catch (err) {
+      res.statusCode = 502;
+      res.setHeader("x-bbterminal-cache", "ERROR");
+      res.end(JSON.stringify({ results: null, warnings: [{ message: String((err as Error)?.message ?? err) }] }));
+    }
+  }
+
+  return {
+    name: "bbterminal-polymarket-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(handle);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle);
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname), "");
   return {
@@ -411,6 +512,7 @@ export default defineConfig(({ mode }) => {
       cotProxyPlugin(),
       spotMetalsPlugin(env.TWELVE_DATA_API_KEY),
       getXApiProxyPlugin(env.GETX_API_KEY),
+      predictionMarketsProxyPlugin(),
     ],
     resolve: {
       alias: { "@": path.resolve(__dirname, "src") },
