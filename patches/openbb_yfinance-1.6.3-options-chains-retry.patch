@@ -1,0 +1,55 @@
+--- a/openbb_yfinance/models/options_chains.py
++++ b/openbb_yfinance/models/options_chains.py
+@@ -70,6 +70,23 @@
+         symbol = query.symbol.upper()
+         symbol = "^" + symbol if symbol in ["VIX", "RUT", "SPX", "NDX"] else symbol
+ 
++        def _fetch_chain_with_retry(t, expiration, tz=None, attempts=3):
++            """Yahoo's crumb/session occasionally fails transiently mid-request
++            (esp. under concurrent load), which yfinance surfaces as calls/puts
++            being None rather than raising. Retry a couple of times before
++            giving up on this one expiration, instead of crashing the whole
++            multi-expiration chain fetch over a single flaky call."""
++            import time  # noqa
++
++            last = None
++            for i in range(attempts):
++                last = t.option_chain(expiration, tz=tz) if tz is not None else t.option_chain(expiration)
++                if last[0] is not None and last[1] is not None and last[2] is not None:
++                    return last
++                if i < attempts - 1:
++                    time.sleep(0.4 * (i + 1))
++            return last
++
+         def _get_all_data(symbol: str):
+             """Get all options data in a single thread-safe operation."""
+             t = Ticker(symbol)
+@@ -78,7 +95,9 @@
+             if not expirations or len(expirations) == 0:
+                 return None, None, []
+ 
+-            underlying = t.option_chain(expirations[0])[2]
++            underlying = _fetch_chain_with_retry(t, expirations[0])[2]
++            if underlying is None:
++                return None, None, []
+             chains_output: list = []
+             tz = timezone(underlying.get("exchangeTimezoneName", "UTC"))
+ 
+@@ -86,11 +105,14 @@
+                 exp = datetime.strptime(expiration, "%Y-%m-%d").date()
+                 now = datetime.now().date()
+                 dte = (exp - now).days
+-                chain_data = t.option_chain(expiration, tz=tz)
+-                calls = chain_data[0]
++                chain_data = _fetch_chain_with_retry(t, expiration, tz=tz)
++                calls, puts = chain_data[0], chain_data[1]
++                if calls is None or puts is None:
++                    # Still flaky after retries — skip this one expiration
++                    # rather than fail the entire chain.
++                    continue
+                 calls["option_type"] = "call"
+                 calls["expiration"] = expiration
+-                puts = chain_data[1]
+                 puts["option_type"] = "put"
+                 puts["expiration"] = expiration
+                 chain = concat([calls, puts])
