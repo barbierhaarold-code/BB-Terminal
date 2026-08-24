@@ -38,6 +38,12 @@ function ttlForUrl(url: string): number {
   const interval = u.searchParams.get("interval");
 
   if (pathname.includes("/fixedincome/government/treasury_rates")) return 30 * 60_000;
+  // 13F filings only change quarterly and each fund's full holdings list can
+  // run into the thousands of rows (Vanguard: ~8.4k) — the Funds/Ranking
+  // tabs fan out to 20+ funds on load, so a short TTL would re-pull that
+  // whole payload set on every tab switch for data that's static for months.
+  if (pathname.includes("/equity/ownership/form_13f")) return 60 * 60_000;
+  if (pathname.includes("/regulators/sec/institutions_search")) return 60 * 60_000;
   // 5 min, not 30: yfinance/OpenBB was observed returning a degraded profile
   // payload (missing employees/HQ/phone/website/beta) with a normal 200 —
   // isCacheableBody() below rejects those, but a short TTL bounds the damage
@@ -93,9 +99,26 @@ function createGate(max: number) {
   };
 }
 
+// The Investors module fans out heavily to OpenBB's `sec` provider: the
+// Funds tab pulls 21 institutional CIKs' full 13F holdings (Vanguard ~8.4k
+// rows, Citadel ~13.5k), and Insider Trading pulls Form 4s for 60 tickers.
+// Both are CPU-heavy on the single uvicorn process, but the harder failure
+// found during testing was correctness, not just speed: the SEC provider's
+// on-disk cache (`~/OpenBBUserData/cache/sql/sec_form4.db.gz`) isn't safe
+// under concurrent writers — verified live via direct backend calls, several
+// concurrent insider_trading requests each threw
+// "OperationalError -> attempt to write a readonly database", not a timeout.
+// Sharing the general MAX_CONCURRENT_UPSTREAM=6 gate made both problems
+// worse. A single-flight gate serializes every SEC-provider call so the
+// cache is never written concurrently, at the cost of a slower cold-cache
+// load — acceptable for a personal tool where these results are then cached
+// for a long TTL (see ttlForUrl above).
+const FORM_13F_TIMEOUT_MS = 45_000;
+
 function apiCachePlugin(): Plugin {
   const cache = new Map<string, CacheEntry>();
   const gate = createGate(MAX_CONCURRENT_UPSTREAM);
+  const secGate = createGate(1);
 
   async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
     if (!req.url?.startsWith(API_PREFIX) || req.method !== "GET") { next(); return; }
@@ -111,10 +134,13 @@ function apiCachePlugin(): Plugin {
       return;
     }
 
-    await gate.acquire();
+    const isSecProvider = key.includes("provider=sec") || key.includes("/regulators/sec/");
+    const isForm13F = key.includes("/equity/ownership/form_13f");
+    const activeGate = isSecProvider ? secGate : gate;
+    await activeGate.acquire();
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+      const timeout = setTimeout(() => controller.abort(), isForm13F ? FORM_13F_TIMEOUT_MS : UPSTREAM_TIMEOUT_MS);
       let upstream: Response;
       try {
         upstream = await fetch(API_TARGET + key, { signal: controller.signal });
@@ -141,7 +167,7 @@ function apiCachePlugin(): Plugin {
       res.setHeader("x-bbterminal-cache", "ERROR");
       res.end(JSON.stringify({ results: [], warnings: [{ message: String((err as Error)?.message ?? err) }] }));
     } finally {
-      gate.release();
+      activeGate.release();
     }
   }
 
@@ -503,6 +529,65 @@ function predictionMarketsProxyPlugin(): Plugin {
   };
 }
 
+// ────────────────────────────────────────────────────────────
+// CongressInvests proxy (Investors > Congress tab) — a free, no-key,
+// CORS-enabled aggregator of House/Senate STOCK Act trade disclosures
+// (congressinvests.com). OpenBB's own `government_trades` command is
+// FMP-only and 402-restricted on this app's free FMP tier (verified live),
+// and Quiver Quantitative's API needs a paid plan even for data that shows
+// on their free dashboard — this is proxied here not because of a CORS/key
+// need (CORS is already open) but to cache against the free tier's
+// 100-requests/day cap, same reasoning as the other proxies above.
+const CONGRESS_API = "https://congressinvests.com";
+const CONGRESS_PAGE_SIZE = 200;
+const CONGRESS_PAGES = 3; // 600 most-recent disclosures, ~3 of the 100 free req/day
+const CONGRESS_TTL_MS = 30 * 60_000;
+
+function congressProxyPlugin(): Plugin {
+  let cache: { body: string; expires: number } | null = null;
+
+  async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
+    if (req.url !== "/congress-proxy/trades" || req.method !== "GET") { next(); return; }
+
+    res.setHeader("content-type", "application/json");
+    const now = Date.now();
+    if (cache && cache.expires > now) {
+      res.setHeader("x-bbterminal-cache", "HIT");
+      res.end(cache.body);
+      return;
+    }
+
+    try {
+      const pages = await Promise.all(
+        Array.from({ length: CONGRESS_PAGES }, (_, i) =>
+          fetch(`${CONGRESS_API}/trades?limit=${CONGRESS_PAGE_SIZE}&offset=${i * CONGRESS_PAGE_SIZE}`)
+            .then((r) => (r.ok ? r.json() : { trades: [] }))
+            .catch(() => ({ trades: [] }))
+        )
+      );
+      const merged = pages.flatMap((p) => (Array.isArray(p?.trades) ? p.trades : []));
+      const body = JSON.stringify({ results: merged });
+      cache = { body, expires: now + CONGRESS_TTL_MS };
+      res.setHeader("x-bbterminal-cache", "MISS");
+      res.end(body);
+    } catch (err) {
+      res.statusCode = 502;
+      res.setHeader("x-bbterminal-cache", "ERROR");
+      res.end(JSON.stringify({ results: null, warnings: [{ message: String((err as Error)?.message ?? err) }] }));
+    }
+  }
+
+  return {
+    name: "bbterminal-congress-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(handle);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle);
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname), "");
   return {
@@ -513,6 +598,7 @@ export default defineConfig(({ mode }) => {
       spotMetalsPlugin(env.TWELVE_DATA_API_KEY),
       getXApiProxyPlugin(env.GETX_API_KEY),
       predictionMarketsProxyPlugin(),
+      congressProxyPlugin(),
     ],
     resolve: {
       alias: { "@": path.resolve(__dirname, "src") },

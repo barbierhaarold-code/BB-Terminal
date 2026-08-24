@@ -31,6 +31,7 @@ import { HEAT } from "@/functions/HEAT";
 import { TRACK } from "@/functions/TRACK";
 import { NH } from "@/functions/NH";
 import { RESEARCH } from "@/functions/RESEARCH";
+import { INVEST } from "@/functions/INVEST";
 
 const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   CC: () => <CC />,
@@ -56,6 +57,7 @@ const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   HEAT: () => <HEAT />,
   TRACK: () => <TRACK />,
   NH: () => <NH />,
+  INVEST: () => <INVEST />,
 };
 
 export default function App() {

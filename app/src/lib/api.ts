@@ -613,6 +613,82 @@ export const fetchFedFundsContractHistory = (expirationYYYYMM: string, startDate
     start_date: startDate, end_date: endDate, interval: "1d",
   });
 
+// ────── Investors / Institutional (13F, insider, congress) ──────
+// 13F holdings and institution name search are both free via the SEC
+// provider (no key) — verified live against the running backend, unlike
+// `institutional`/`major_holders`/`government_trades`, which are FMP-only
+// and 402 "Restricted Endpoint" on this app's free tier.
+export interface Holding13F {
+  period_ending: string; issuer: string; cusip: string; asset_class: string;
+  security_type?: string; investment_discretion?: string;
+  voting_authority_sole?: number; principal_amount?: number;
+  value: number; weight: number;
+}
+export const fetch13F = (cik: string, opts: { date?: string; limit?: number } = {}) =>
+  get<Holding13F[]>("/equity/ownership/form_13f", {
+    symbol: cik, provider: "sec", date: opts.date, limit: opts.limit ?? 1,
+  });
+
+export const searchInstitutions = (query: string) =>
+  get<SearchResult[]>("/regulators/sec/institutions_search", { query, provider: "sec" });
+
+/**
+ * Market-wide Form 4 feed (Investors > Insider Trading tab) — aggregates
+ * `fetchInsiderTrading` (already used per-symbol by RESEARCH's Ownership tab)
+ * over a market-cap-weighted basket, same dedupe/sort pattern as
+ * `aggregateCompanyNews`. Capped basket size: each symbol is a separate SEC
+ * call, and the dev-server proxy caps upstream concurrency at 6.
+ */
+export async function aggregateInsiderTrading(symbols: string[], perSymbol = 15): Promise<InsiderTx[]> {
+  // Firing all symbols at once (originally tested at 60) swamped SEC's
+  // per-IP rate limit through the shared upstream — most of the fan-out came
+  // back 500/502 instead of real data. Small sequential chunks stay under
+  // that limit; each symbol's own failure is still caught individually
+  // below, so one bad chunk never blanks the whole feed.
+  const CHUNK = 8;
+  const batches: InsiderTx[][] = [];
+  for (let i = 0; i < symbols.length; i += CHUNK) {
+    const chunk = symbols.slice(i, i + CHUNK);
+    const results = await Promise.all(chunk.map((s) => fetchInsiderTrading(s, perSymbol).catch(() => [] as InsiderTx[])));
+    batches.push(...results);
+  }
+  const seen = new Set<string>();
+  const merged: InsiderTx[] = [];
+  for (const batch of batches) {
+    for (const t of batch) {
+      const key = t.filing_url || `${t.symbol}-${t.owner_name}-${t.filing_date}-${t.securities_transacted}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(t);
+    }
+  }
+  merged.sort((a, b) => (a.filing_date > b.filing_date ? -1 : 1));
+  return merged;
+}
+
+/**
+ * Congressional trading disclosures (STOCK Act). OpenBB's `government_trades`
+ * is FMP-only and 402-restricted on this app's free tier; Quiver
+ * Quantitative's API needs a paid plan even for the free-tier dashboard's
+ * underlying data. CongressInvests (congressinvests.com) is a genuinely free,
+ * no-key, CORS-enabled aggregator of House/Senate STOCK Act filings — proxied
+ * server-side (see vite.config.ts) to add response caching against its
+ * 100-requests/day free quota, not because of a CORS/key requirement.
+ */
+export interface CongressTrade {
+  member: string; chamber: "House" | "Senate"; ticker: string;
+  trade_type: string; amount: string; tx_date: string; disclosed: string;
+  asset?: string; link?: string;
+}
+export const fetchCongressTrades = async (): Promise<CongressTrade[]> => {
+  const res = await fetch("/congress-proxy/trades");
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !Array.isArray(body.results)) {
+    throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load congressional trades");
+  }
+  return body.results as CongressTrade[];
+};
+
 // ────── Prediction markets (Polymarket) ──────
 // Public read-only Gamma API, no key — but no CORS headers either, so it's
 // fetched through the dev-server proxy in vite.config.ts, same pattern as
