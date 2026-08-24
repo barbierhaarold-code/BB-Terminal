@@ -207,6 +207,7 @@ export function INTEL({ symbol }: { symbol: string }) {
       <div className="col-span-3 flex flex-wrap items-center gap-2 border-t border-term-border pt-2 text-[11px]">
         <span className="sub-header">DRILL DOWN:</span>
         {[
+          { c: "RESEARCH", label: "Deep-Dive Research" },
           { c: "GP", label: "Chart" }, { c: "HP", label: "Price History" },
           { c: "KEY", label: "All Ratios" }, { c: "FA", label: "Financials" },
           { c: "DVD", label: "Dividends" }, { c: "EE", label: "Analyst Detail" },

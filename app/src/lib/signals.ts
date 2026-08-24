@@ -131,6 +131,26 @@ export function sigDividend(yieldDec?: number, payout?: number): Signal {
   return neutral(yLabel);
 }
 
+export function sigROE(roe?: number): Signal {
+  if (roe == null) return na("ROE n/a");
+  const pct = roe * 100;
+  const detail = `${pct.toFixed(1)}%`;
+  if (pct >= 20) return bull("Strong ROE", detail);
+  if (pct >= 10) return neutral("Fair ROE", detail);
+  if (pct > 0) return bear("Weak ROE", detail);
+  return bear("Negative ROE", detail);
+}
+
+export function sigROA(roa?: number): Signal {
+  if (roa == null) return na("ROA n/a");
+  const pct = roa * 100;
+  const detail = `${pct.toFixed(1)}%`;
+  if (pct >= 10) return bull("Strong ROA", detail);
+  if (pct >= 4) return neutral("Fair ROA", detail);
+  if (pct > 0) return bear("Weak ROA", detail);
+  return bear("Negative ROA", detail);
+}
+
 export interface ScoreTally {
   bull: number;
   bear: number;
@@ -151,6 +171,30 @@ export function tally(signals: Signal[]): ScoreTally {
   else if (net <= -Math.max(2, Math.ceil(informative * 0.4))) verdict = "Bearish";
   return { ...counts, net, verdict };
 }
+
+// ────── Letter grades (Equity Research — Fundamentals scorecard) ──────
+// Reuses the existing sig* classifiers rather than re-encoding thresholds:
+// a grade is just bull/neutral/bear signals rolled up into a 0-1 score.
+export type Grade = "A" | "B" | "C" | "D" | "F";
+export interface GradeResult { grade: Grade | "—"; score?: number; signals: Signal[]; }
+
+const GRADE_LEVEL_SCORE: Record<SignalLevel, number | null> = { bull: 1, neutral: 0.55, bear: 0, na: null };
+
+export function gradeFromSignals(signals: Signal[]): GradeResult {
+  const scored = signals.map((s) => GRADE_LEVEL_SCORE[s.level]).filter((v): v is number => v != null);
+  if (scored.length === 0) return { grade: "—", signals };
+  const score = scored.reduce((a, b) => a + b, 0) / scored.length;
+  let grade: Grade;
+  if (score >= 0.85) grade = "A";
+  else if (score >= 0.65) grade = "B";
+  else if (score >= 0.45) grade = "C";
+  else if (score >= 0.25) grade = "D";
+  else grade = "F";
+  return { grade, score, signals };
+}
+
+export const gradeColor = (g: Grade | "—") =>
+  g === "A" || g === "B" ? "up" : g === "C" ? "amber" : g === "D" || g === "F" ? "down" : "text-term-muted";
 
 export const levelColor = (lvl: SignalLevel) =>
   lvl === "bull" ? "up" : lvl === "bear" ? "down" : lvl === "neutral" ? "amber" : "text-term-muted";

@@ -30,10 +30,12 @@ import { QCARD } from "@/functions/QCARD";
 import { HEAT } from "@/functions/HEAT";
 import { TRACK } from "@/functions/TRACK";
 import { NH } from "@/functions/NH";
+import { RESEARCH } from "@/functions/RESEARCH";
 
 const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   CC: () => <CC />,
   INTEL: (s) => <INTEL symbol={s!} />,
+  RESEARCH: (s) => <RESEARCH symbol={s!} />,
   HELP: () => <HELP />,
   DES: (s) => <DES symbol={s!} />,
   GP:  (s) => <GP symbol={s!} />,
