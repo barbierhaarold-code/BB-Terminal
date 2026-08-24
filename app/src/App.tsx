@@ -29,6 +29,7 @@ import { CRYPTO } from "@/functions/CRYPTO";
 import { QCARD } from "@/functions/QCARD";
 import { HEAT } from "@/functions/HEAT";
 import { TRACK } from "@/functions/TRACK";
+import { NH } from "@/functions/NH";
 
 const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   CC: () => <CC />,
@@ -52,6 +53,7 @@ const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   QCARD: () => <QCARD />,
   HEAT: () => <HEAT />,
   TRACK: () => <TRACK />,
+  NH: () => <NH />,
 };
 
 export default function App() {

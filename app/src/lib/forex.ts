@@ -295,7 +295,7 @@ function zoneOffsetMinutes(tz: string, at: Date): number {
 }
 
 /** Wall-clock parts (day-of-week + minutes-since-midnight) in a zone. */
-function localParts(tz: string, at: Date): { dow: number; minutes: number } {
+export function localParts(tz: string, at: Date): { dow: number; minutes: number } {
   const dtf = new Intl.DateTimeFormat("en-US", {
     timeZone: tz, hour12: false, weekday: "short", hour: "2-digit", minute: "2-digit",
   });
@@ -322,7 +322,7 @@ export interface SessionStatus {
  * Uses the zone offset at `ref`; near a DST switch this can be ~1h off, which is
  * fine for a countdown clock.
  */
-function localToUtc(tz: string, ref: Date, dayOffset: number, hour: number, minute = 0): number {
+export function localToUtc(tz: string, ref: Date, dayOffset: number, hour: number, minute = 0): number {
   const off = zoneOffsetMinutes(tz, ref);
   // Build the local calendar date (in tz) then shift by dayOffset days.
   const dtf = new Intl.DateTimeFormat("en-US", {

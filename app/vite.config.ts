@@ -323,10 +323,95 @@ function spotMetalsPlugin(apiKey: string | undefined): Plugin {
   };
 }
 
+// ────────────────────────────────────────────────────────────
+// GetXAPI proxy (Tweets tab) — a paid per-call X/Twitter data reseller
+// (Bearer-token REST, $0.001/call on /twitter/user/tweets). The key must
+// never reach the client bundle, same reasoning as spotMetalsPlugin above.
+// Server-side cache TTL is a fixed floor independent of whatever poll
+// interval the Tweets-tab settings panel is configured to — a cost safety
+// net so a faster in-app setting can't multiply billed upstream calls.
+function getXApiProxyPlugin(apiKey: string | undefined): Plugin {
+  const TARGET = "https://api.getxapi.com";
+  const TTL_MS = 4 * 60_000;
+  const cache = new Map<string, { body: string; expires: number }>();
+
+  async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
+    if (req.url?.split("?")[0] !== "/getx-proxy/user-tweets" || req.method !== "GET") { next(); return; }
+
+    res.setHeader("content-type", "application/json");
+    if (!apiKey) {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ results: null, warnings: [{ message: "GETX_API_KEY not configured" }] }));
+      return;
+    }
+
+    const url = new URL(req.url, "http://internal");
+    const userNames = (url.searchParams.get("userNames") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const cacheKey = userNames.slice().sort().join(",");
+    const now = Date.now();
+
+    const hit = cache.get(cacheKey);
+    if (hit && hit.expires > now) {
+      res.setHeader("x-bbterminal-cache", "HIT");
+      res.end(hit.body);
+      return;
+    }
+
+    try {
+      const perUser = await Promise.all(
+        userNames.map(async (userName) => {
+          const upstream = await fetch(`${TARGET}/twitter/user/tweets?userName=${encodeURIComponent(userName)}`, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+          });
+          if (!upstream.ok) return [];
+          const json = await upstream.json().catch(() => null);
+          const tweets = Array.isArray(json?.tweets) ? json.tweets : Array.isArray(json?.data) ? json.data : [];
+          // Verified directly against a live GetXAPI response: fields are
+          // camelCase (`createdAt`, not `created_at`), and `createdAt` is a
+          // Twitter-format date string ("Sat Aug 22 02:32:52 +0000 2026"),
+          // parseable by `new Date()` as-is.
+          return tweets.map((t: Record<string, unknown>) => ({
+            id: String(t.id ?? `${userName}-${t.createdAt}`),
+            author: userName,
+            text: String(t.text ?? ""),
+            url: String(t.url ?? (t.id ? `https://x.com/${userName}/status/${t.id}` : "")),
+            date: t.createdAt ? new Date(String(t.createdAt)).toISOString() : new Date().toISOString(),
+          }));
+        })
+      );
+      const merged = perUser.flat().sort((a, b) => (a.date > b.date ? -1 : 1));
+      const body = JSON.stringify({ results: merged });
+      cache.set(cacheKey, { body, expires: now + TTL_MS });
+      res.setHeader("x-bbterminal-cache", "MISS");
+      res.end(body);
+    } catch (err) {
+      res.statusCode = 502;
+      res.setHeader("x-bbterminal-cache", "ERROR");
+      res.end(JSON.stringify({ results: null, warnings: [{ message: String((err as Error)?.message ?? err) }] }));
+    }
+  }
+
+  return {
+    name: "bbterminal-getx-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(handle);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle);
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname), "");
   return {
-    plugins: [react(), apiCachePlugin(), cotProxyPlugin(), spotMetalsPlugin(env.TWELVE_DATA_API_KEY)],
+    plugins: [
+      react(),
+      apiCachePlugin(),
+      cotProxyPlugin(),
+      spotMetalsPlugin(env.TWELVE_DATA_API_KEY),
+      getXApiProxyPlugin(env.GETX_API_KEY),
+    ],
     resolve: {
       alias: { "@": path.resolve(__dirname, "src") },
     },

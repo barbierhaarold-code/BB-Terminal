@@ -1,3 +1,7 @@
+import { INDICES } from "@/lib/indices";
+import { UNIVERSE } from "@/lib/universe";
+import { COINS } from "@/lib/crypto";
+
 const BASE = "/api/v1";
 
 export class ApiError extends Error {
@@ -103,6 +107,48 @@ export const fetchHistorical = (s: string, o: { interval?: string; start_date?: 
 
 export const fetchNewsCompany = (s: string, limit = 30) =>
   get<NewsItem[]>("/news/company", { symbol: s, provider: "yfinance", limit });
+
+// ────── News Hub category feeds ──────
+// `/news/world` (a real general-news endpoint) only accepts benzinga/biztoc/
+// fmp/intrinio/tiingo on this install, and every one of those needs a paid/
+// keyed credential this app doesn't have — verified directly against the
+// running openbb-api server. Same free workaround as fetchForexNews below:
+// aggregate `/news/company` (yfinance, no key) over a representative basket,
+// dedupe by url/title, sort newest-first. Baskets reuse existing single-
+// source-of-truth lists rather than new hardcoded ones.
+export async function aggregateCompanyNews(
+  symbols: string[],
+  opts: { perSymbol?: number; limit?: number } = {}
+): Promise<NewsItem[]> {
+  const perSymbol = opts.perSymbol ?? 10;
+  const limit = opts.limit ?? 40;
+  const batches = await Promise.all(
+    symbols.map((s) => fetchNewsCompany(s, perSymbol).catch(() => [] as NewsItem[]))
+  );
+  const seen = new Set<string>();
+  const merged: NewsItem[] = [];
+  for (const batch of batches) {
+    for (const n of batch) {
+      const key = (n.url || n.title || "").trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      merged.push(n);
+    }
+  }
+  merged.sort((a, b) => (a.date > b.date ? -1 : 1));
+  return merged.slice(0, limit);
+}
+
+const GENERAL_NEWS_SYMBOLS = INDICES.map((i) => i.etf).filter((s): s is string => !!s);
+const STOCKS_NEWS_SYMBOLS = [...UNIVERSE]
+  .sort((a, b) => b.marketCap - a.marketCap)
+  .slice(0, 8)
+  .map((c) => c.symbol);
+const CRYPTO_NEWS_SYMBOLS = COINS.slice(0, 8).map((c) => c.sym);
+
+export const fetchGeneralNews = (limit = 40) => aggregateCompanyNews(GENERAL_NEWS_SYMBOLS, { perSymbol: 10, limit });
+export const fetchStocksNews = (limit = 40) => aggregateCompanyNews(STOCKS_NEWS_SYMBOLS, { perSymbol: 8, limit });
+export const fetchCryptoNews = (limit = 40) => aggregateCompanyNews(CRYPTO_NEWS_SYMBOLS, { perSymbol: 10, limit });
 
 export const fetchProfile = (s: string) =>
   get<Profile[] | Profile>("/equity/profile", { symbol: s, provider: "yfinance" })
@@ -222,25 +268,7 @@ export const fetchIntraday = (
  * gold). Aggregate a basket, dedupe, sort newest-first. No API key required.
  */
 const FX_NEWS_SYMBOLS = ["EURUSD=X", "GBPUSD=X", "USDJPY=X", "GC=F", "SI=F", "DX-Y.NYB"];
-export async function fetchForexNews(limit = 40): Promise<NewsItem[]> {
-  const batches = await Promise.all(
-    FX_NEWS_SYMBOLS.map((s) =>
-      fetchNewsCompany(s, 15).catch(() => [] as NewsItem[])
-    )
-  );
-  const seen = new Set<string>();
-  const merged: NewsItem[] = [];
-  for (const batch of batches) {
-    for (const n of batch) {
-      const key = (n.url || n.title || "").trim().toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      merged.push(n);
-    }
-  }
-  merged.sort((a, b) => (a.date > b.date ? -1 : 1));
-  return merged.slice(0, limit);
-}
+export const fetchForexNews = (limit = 40) => aggregateCompanyNews(FX_NEWS_SYMBOLS, { perSymbol: 15, limit });
 
 export const fetchCryptoHistorical = (sym: string, days = 30) => {
   const start = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
