@@ -196,7 +196,15 @@ function apiCachePlugin(): Plugin {
 // [NonComm Long, NonComm Short, NonComm Spreads, Comm Long, Comm Short,
 // Total Long, Total Short, NonReportable Long, NonReportable Short],
 // repeated for the positions row then the changes row.
-const COT_GOLD_URL = "https://www.tradingster.com/cot/legacy-futures/088691";
+// CFTC contract codes verified live against Tradingster's own page titles
+// (each URL's rendered <title> was checked to actually name the contract
+// below before being hardcoded here) — not guessed from memory.
+const COT_CONTRACTS: Record<string, string> = {
+  gold: "088691",     // COT Report: GOLD
+  crude: "067651",    // COT Report: WTI-PHYSICAL
+  eurusd: "099741",   // COT Report: EURO FX
+  spx: "13874A",      // COT Report: E-MINI S&P 500
+};
 // COT reports are released weekly (Fridays, for the prior Tuesday) — no
 // reason to re-scrape more than a few times a day.
 const COT_TTL_MS = 6 * 60 * 60_000;
@@ -231,31 +239,37 @@ function parseCotHtml(html: string): CotSnapshot | null {
 }
 
 function cotProxyPlugin(): Plugin {
-  let cache: { data: CotSnapshot; expires: number } | null = null;
+  const cache = new Map<string, { data: CotSnapshot; expires: number }>();
 
   async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
-    if (req.url !== "/cot-proxy/gold" || req.method !== "GET") { next(); return; }
+    const match = req.url?.match(/^\/cot-proxy\/([a-z0-9]+)$/);
+    const code = match && COT_CONTRACTS[match[1]];
+    if (!match || req.method !== "GET") { next(); return; }
+    res.setHeader("content-type", "application/json");
+    if (!code) {
+      res.statusCode = 404;
+      res.end(JSON.stringify({ results: null, warnings: [{ message: `Unknown COT contract "${match[1]}"` }] }));
+      return;
+    }
 
     const now = Date.now();
-    if (cache && cache.expires > now) {
-      res.setHeader("content-type", "application/json");
+    const hit = cache.get(code);
+    if (hit && hit.expires > now) {
       res.setHeader("x-bbterminal-cache", "HIT");
-      res.end(JSON.stringify({ results: cache.data }));
+      res.end(JSON.stringify({ results: hit.data }));
       return;
     }
 
     try {
-      const upstream = await fetch(COT_GOLD_URL);
+      const upstream = await fetch(`https://www.tradingster.com/cot/legacy-futures/${code}`);
       const html = await upstream.text();
       const parsed = upstream.ok ? parseCotHtml(html) : null;
       if (!parsed) throw new Error(`Could not parse Tradingster COT report (status ${upstream.status})`);
-      cache = { data: parsed, expires: now + COT_TTL_MS };
-      res.setHeader("content-type", "application/json");
+      cache.set(code, { data: parsed, expires: now + COT_TTL_MS });
       res.setHeader("x-bbterminal-cache", "MISS");
       res.end(JSON.stringify({ results: parsed }));
     } catch (err) {
       res.statusCode = 502;
-      res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ results: null, warnings: [{ message: String((err as Error)?.message ?? err) }] }));
     }
   }
@@ -340,6 +354,56 @@ function spotMetalsPlugin(apiKey: string | undefined): Plugin {
 
   return {
     name: "bbterminal-spot-metals-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(handle);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle);
+    },
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// Quant service proxy (QUANT > Cointegration/Z-Score tabs) — forwards POSTs
+// to the small local FastAPI process in quant_service/ (port 6901, started
+// by start.sh alongside openbb-api). No caching: each request carries a
+// different pair/lookback's price series in the body, so there's no stable
+// cache key worth keying on, and the computation itself is cheap.
+const QUANT_TARGET = "http://127.0.0.1:6901";
+
+function quantProxyPlugin(): Plugin {
+  async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
+    if (!req.url?.startsWith("/quant-proxy/") || req.method !== "POST") { next(); return; }
+
+    res.setHeader("content-type", "application/json");
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    const body = Buffer.concat(chunks);
+
+    try {
+      const upstreamPath = req.url.slice("/quant-proxy".length);
+      const upstream = await fetch(QUANT_TARGET + upstreamPath, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      });
+      const text = await upstream.text();
+      res.statusCode = upstream.status;
+      if (upstream.ok) {
+        res.end(JSON.stringify({ results: JSON.parse(text) }));
+      } else {
+        let detail = text;
+        try { detail = JSON.parse(text)?.detail ?? text; } catch { /* not JSON */ }
+        res.end(JSON.stringify({ results: null, warnings: [{ message: typeof detail === "string" ? detail : JSON.stringify(detail) }] }));
+      }
+    } catch (err) {
+      res.statusCode = 502;
+      res.end(JSON.stringify({ results: null, warnings: [{ message: String((err as Error)?.message ?? err) }] }));
+    }
+  }
+
+  return {
+    name: "bbterminal-quant-proxy",
     configureServer(server: ViteDevServer) {
       server.middlewares.use(handle);
     },
@@ -595,6 +659,7 @@ export default defineConfig(({ mode }) => {
       react(),
       apiCachePlugin(),
       cotProxyPlugin(),
+      quantProxyPlugin(),
       spotMetalsPlugin(env.TWELVE_DATA_API_KEY),
       getXApiProxyPlugin(env.GETX_API_KEY),
       predictionMarketsProxyPlugin(),

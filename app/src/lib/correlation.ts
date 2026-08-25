@@ -37,16 +37,27 @@ export function correlation(a: number[], b: number[]): number | undefined {
  * Inner-join two daily candle series by calendar date. Needed because gold/
  * DXY (5-day trading week, exchange holidays) and crypto (7-day, no holidays)
  * don't share a trading calendar — correlating by raw array index would
- * silently pair the wrong days' returns together.
+ * silently pair the wrong days' returns together. Exported for the QUANT
+ * module (correlation matrix, cointegration, z-score, beta/hedge panels all
+ * need the same date-aligned close pairs before running any stats on them).
  */
-function alignByDate(a: Candle[], b: Candle[]): [number[], number[]] {
+export function alignByDate(a: Candle[], b: Candle[]): [number[], number[]] {
+  const [dates, ac, bc] = alignSeriesByDate(a, b);
+  void dates;
+  return [ac, bc];
+}
+
+/** Same date-alignment as `alignByDate`, but also returns the shared dates —
+ * needed anywhere the aligned series get plotted on a real time axis (the
+ * Z-Score spread chart), not just reduced to a single coefficient. */
+export function alignSeriesByDate(a: Candle[], b: Candle[]): [string[], number[], number[]] {
   const bByDate = new Map(b.map((c) => [c.date.slice(0, 10), c.close]));
-  const ac: number[] = [], bc: number[] = [];
+  const dates: string[] = [], ac: number[] = [], bc: number[] = [];
   for (const c of a) {
     const bClose = bByDate.get(c.date.slice(0, 10));
-    if (bClose != null) { ac.push(c.close); bc.push(bClose); }
+    if (bClose != null) { dates.push(c.date); ac.push(c.close); bc.push(bClose); }
   }
-  return [ac, bc];
+  return [dates, ac, bc];
 }
 
 /**
@@ -61,6 +72,32 @@ export function rollingCorrelation(a: Candle[], b: Candle[], window = 20): numbe
   const n = Math.min(ra.length, rb.length);
   if (n < window) return correlation(ra, rb);
   return correlation(ra.slice(-window), rb.slice(-window));
+}
+
+/**
+ * Ordinary least squares fit of y on x (y = slope*x + intercept), plus R².
+ * Used for market beta (y = stock returns, x = benchmark returns) and pair
+ * hedge ratios (y = price A, x = price B) — same regression, different
+ * inputs, so one implementation covers both rather than two near-identical
+ * copies.
+ */
+export interface LinRegResult { slope: number; intercept: number; r2: number; }
+export function linreg(x: number[], y: number[]): LinRegResult | undefined {
+  const n = Math.min(x.length, y.length);
+  if (n < 2) return undefined;
+  const xs = x.slice(-n), ys = y.slice(-n);
+  const mean = (v: number[]) => v.reduce((s, val) => s + val, 0) / v.length;
+  const mx = mean(xs), my = mean(ys);
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - mx, dy = ys[i] - my;
+    sxy += dx * dy; sxx += dx * dx; syy += dy * dy;
+  }
+  if (sxx === 0) return undefined;
+  const slope = sxy / sxx;
+  const intercept = my - slope * mx;
+  const r2 = syy === 0 ? 0 : (sxy * sxy) / (sxx * syy);
+  return { slope, intercept, r2 };
 }
 
 // ────────────────────────────────────────────────────────────

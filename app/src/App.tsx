@@ -32,6 +32,7 @@ import { TRACK } from "@/functions/TRACK";
 import { NH } from "@/functions/NH";
 import { RESEARCH } from "@/functions/RESEARCH";
 import { INVEST } from "@/functions/INVEST";
+import { QUANT } from "@/functions/QUANT";
 
 const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   CC: () => <CC />,
@@ -58,6 +59,7 @@ const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   TRACK: () => <TRACK />,
   NH: () => <NH />,
   INVEST: () => <INVEST />,
+  QUANT: () => <QUANT />,
 };
 
 export default function App() {

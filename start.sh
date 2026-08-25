@@ -11,6 +11,7 @@ ok()   { printf "${GREEN}✓ %s${RST}\n" "$*"; }
 fail() { printf "${RED}✗ %s${RST}\n" "$*" >&2; exit 1; }
 
 API_PORT=6900
+QUANT_PORT=6901
 UI_PORT=5173
 
 [ -x .venv/bin/openbb-api ] || fail "Run ./setup.sh first (OpenBB is not installed)."
@@ -35,6 +36,27 @@ else
     if [ "$i" = "60" ]; then
       printf "${RST}\n"
       fail "API didn't respond within 60s. See /tmp/bbterminal-api.log"
+    fi
+  done
+fi
+
+# -------- Quant service --------
+if port_in_use "$QUANT_PORT"; then
+  ok "Quant service already running on :$QUANT_PORT"
+else
+  step "Starting Quant service on :$QUANT_PORT"
+  nohup .venv/bin/python quant_service/main.py \
+    > /tmp/bbterminal-quant.log 2>&1 &
+  QUANT_PID=$!
+  printf "  ${DIM}waiting for Quant service"
+  for i in $(seq 1 30); do
+    if curl -s -o /dev/null "http://127.0.0.1:$QUANT_PORT/health"; then
+      printf "${RST}\n"; ok "Quant service up (pid $QUANT_PID)"; break
+    fi
+    printf "."; sleep 1
+    if [ "$i" = "30" ]; then
+      printf "${RST}\n"
+      fail "Quant service didn't respond within 30s. See /tmp/bbterminal-quant.log"
     fi
   done
 fi
@@ -72,8 +94,10 @@ ${AMBER}  BBterminal is live${RST}
 
   UI:         ${AMBER}${URL}${RST}
   API docs:   ${DIM}http://localhost:${API_PORT}/docs${RST}
+  Quant docs: ${DIM}http://localhost:${QUANT_PORT}/docs${RST}
 
   Logs:       /tmp/bbterminal-api.log
+              /tmp/bbterminal-quant.log
               /tmp/bbterminal-ui.log
 
   Stop:       ${AMBER}./stop.sh${RST}

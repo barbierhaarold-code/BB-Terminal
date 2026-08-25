@@ -8,7 +8,7 @@ AMBER="\033[33m"; GREEN="\033[32m"; DIM="\033[2m"; RST="\033[0m"
 step() { printf "${AMBER}▸ %s${RST}\n" "$*"; }
 ok()   { printf "${GREEN}✓ %s${RST}\n" "$*"; }
 
-for port in 6900 5173; do
+for port in 6900 6901 5173; do
   pids=$(lsof -ti tcp:"$port" 2>/dev/null || true)
   if [ -n "$pids" ]; then
     step "Killing processes on :$port"

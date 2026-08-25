@@ -445,20 +445,30 @@ export interface CotSnapshot {
   nonCommercialShortChange: number;
 }
 
+export type CotContract = "gold" | "crude" | "eurusd" | "spx";
+export const COT_CONTRACT_LABELS: Record<CotContract, string> = {
+  gold: "Gold",
+  crude: "WTI Crude",
+  eurusd: "EUR FX",
+  spx: "E-mini S&P 500",
+};
+
 /**
- * Gold COT positioning (legacy futures-only report, Non-Commercial /
+ * COT positioning (legacy futures-only report, Non-Commercial /
  * "large speculator" category), sourced from Tradingster's CFTC mirror via
  * the dev-server proxy in vite.config.ts (Tradingster's page has no API and
  * no CORS headers, so this can't be fetched directly from the browser).
  */
-export const fetchGoldCot = async (): Promise<CotSnapshot> => {
-  const res = await fetch("/cot-proxy/gold");
+export const fetchCot = async (contract: CotContract): Promise<CotSnapshot> => {
+  const res = await fetch(`/cot-proxy/${contract}`);
   const body = await res.json().catch(() => ({}));
   if (!res.ok || !body.results) {
     throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load COT data");
   }
   return body.results as CotSnapshot;
 };
+
+export const fetchGoldCot = () => fetchCot("gold");
 
 // ────── News Hub — Pass 2 calendars ──────
 // All free via `nasdaq`/`federal_reserve`/`yfinance` providers — no API key.
@@ -705,4 +715,32 @@ export const fetchPredictionMarkets = async (): Promise<PredictionMarket[]> => {
     throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load prediction markets");
   }
   return body.results as PredictionMarket[];
+};
+
+// ────── Quant service (Analytics — Cointegration / Z-Score) ──────
+// Engle-Granger cointegration test. The frontend date-aligns both closes
+// series itself (same join logic every other correlation panel already
+// uses) and posts the two aligned arrays to the local quant_service process
+// via the dev-server proxy in vite.config.ts — statsmodels' ADF-on-residuals
+// implementation is what's actually being reused here, not reimplemented in
+// JS.
+export interface CointegrationResult {
+  score: number;
+  pvalue: number;
+  critical_values: { "1%": number; "5%": number; "10%": number };
+  hedge_ratio: number;
+  intercept: number;
+  cointegrated_95: boolean;
+}
+export const fetchCointegration = async (a: number[], b: number[]): Promise<CointegrationResult> => {
+  const res = await fetch("/quant-proxy/cointegration", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ a, b }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.results) {
+    throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to run cointegration test");
+  }
+  return body.results as CointegrationResult;
 };
