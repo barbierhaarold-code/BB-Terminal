@@ -33,7 +33,7 @@ export const FUNCTIONS: FunctionDef[] = [
 
   { code: "WEI",  name: "World Equity Indices",  needsSymbol: false, group: "Markets", summary: "Major global indices — level & daily change" },
   { code: "MOV",  name: "Market Movers",         needsSymbol: false, group: "Markets", summary: "US gainers, losers, most active" },
-  { code: "CRYPTO", name: "Crypto Monitor",      needsSymbol: false, group: "Markets", summary: "Top crypto prices + sparkline" },
+  { code: "CRYPTO", name: "Crypto Monitor",      needsSymbol: false, group: "Markets", summary: "Top crypto prices, Fear & Greed, Altcoin Season, derivatives, liquidations, ETF flows, on-chain" },
   { code: "FXC",  name: "Forex Center",          needsSymbol: false, group: "Markets", summary: "Majors, crosses, gold/silver, sessions clock, FX news" },
   { code: "QCARD", name: "Quote Cards",          needsSymbol: false, group: "Markets", summary: "Filterable ticker cards — price, change, sparkline, favorites" },
   { code: "HEAT", name: "Market Heatmap",        needsSymbol: false, group: "Markets", summary: "Sector→industry→ticker treemap, sized by cap, colored by change" },
