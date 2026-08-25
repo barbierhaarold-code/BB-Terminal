@@ -67,3 +67,53 @@ export function useSectorPerformance(): SectorPerf[] {
     isLoading: queries[i].isLoading,
   }));
 }
+
+// ────────────────────────────────────────────────────────────
+// Sector rotation (QUANT > Sector Rotation tab) — same 11 SECTORS above
+// (single source of truth, not re-declared), but needs 6 months of daily
+// history per ETF to derive multi-period returns, vs. `useSectorPerformance`
+// above which only pulls the last week for a 1-day change. Different query,
+// same source list — not a refetch of what CC/HEAT already have cached
+// (their queryKey/window is `["sector-etf", etf]` over 7 days; this uses a
+// distinct key so it doesn't fight that cache for a different date range).
+// ────────────────────────────────────────────────────────────
+
+export interface RotationPeriod { label: string; days: number; }
+export const ROTATION_PERIODS: RotationPeriod[] = [
+  { label: "1D", days: 1 },
+  { label: "1W", days: 5 },
+  { label: "1M", days: 21 },
+  { label: "3M", days: 63 },
+];
+
+export interface SectorRotationRow {
+  def: SectorDef;
+  returns: (number | undefined)[]; // aligned to ROTATION_PERIODS
+  isLoading: boolean;
+}
+
+/** % change from N trading days ago to the latest close. */
+function returnOverDays(data: Candle[] | undefined, days: number): number | undefined {
+  if (!data || data.length < days + 1) return undefined;
+  const last = data[data.length - 1].close;
+  const base = data[data.length - 1 - days].close;
+  return base ? ((last - base) / base) * 100 : undefined;
+}
+
+export function useSectorRotation(): SectorRotationRow[] {
+  const queries = useQueries({
+    queries: SECTORS.map((s) => ({
+      queryKey: ["sector-rotation-etf", s.etf],
+      queryFn: () => fetchHistorical(s.etf, {
+        start_date: new Date(Date.now() - 130 * 864e5).toISOString().slice(0, 10),
+      }),
+      staleTime: 5 * 60_000,
+      refetchInterval: 5 * 60_000,
+    })),
+  });
+  return SECTORS.map((def, i) => ({
+    def,
+    returns: ROTATION_PERIODS.map((p) => returnOverDays(queries[i].data, p.days)),
+    isLoading: queries[i].isLoading,
+  }));
+}
