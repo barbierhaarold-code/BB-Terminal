@@ -13,7 +13,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "ranking", label: "Ranking" },
   { id: "insider", label: "Insider Trading" },
   { id: "congress", label: "Congress" },
-  { id: "whale", label: "Whale Radar (Pending)" },
+  { id: "whale", label: "Whale Radar" },
 ];
 
 export function INVEST() {

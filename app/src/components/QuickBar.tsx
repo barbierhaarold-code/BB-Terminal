@@ -11,8 +11,8 @@ import { cn } from "@/lib/cn";
 // category structure since they're not really "nested content."
 interface Category { label: string; codes: FunctionCode[]; }
 const CATEGORIES: Category[] = [
-  { label: "Research", codes: ["INTEL", "DES", "GP", "QR", "HP", "FA", "KEY", "DVD", "EE"] },
-  { label: "Markets", codes: ["WEI", "MOV", "QCARD", "HEAT", "CURV"] },
+  { label: "Research", codes: ["INTEL", "RESEARCH", "DES", "GP", "QR", "HP", "FA", "KEY", "DVD", "EE"] },
+  { label: "Markets", codes: ["WEI", "MOV", "QCARD", "HEAT", "INVEST", "CURV"] },
   { label: "Forex", codes: ["FXC"] },
   { label: "Crypto", codes: ["CRYPTO"] },
   { label: "News", codes: ["NI", "NH"] },
@@ -22,9 +22,23 @@ const CATEGORIES: Category[] = [
 const PINNED: FunctionCode[] = ["CC", "HELP"];
 
 const NAV_COVERED = new Set<FunctionCode>([...PINNED, ...CATEGORIES.flatMap((c) => c.codes)]);
-const NAV_MISSING = FUNCTIONS.map((f) => f.code).filter((c) => !NAV_COVERED.has(c));
-if (NAV_MISSING.length > 0) {
-  console.warn(`[QuickBar] ${NAV_MISSING.join(", ")} exist in FUNCTIONS but have no nav entry — add them to CATEGORIES or PINNED.`);
+
+// Structural safety net, not just a lint warning: RESEARCH (phase 4) and
+// INVEST (phase 6) were both added to FUNCTIONS and shipped without ever
+// being added here — typeable in the command bar, invisible in every visible
+// menu, twice. A console.warn didn't stop either. Any FUNCTIONS entry still
+// uncovered after the curated list above is auto-appended to the category
+// matching its own `group` (creating one if none exists yet), so a future
+// addition is at worst in an unpolished spot in the nav — never nowhere.
+for (const fn of FUNCTIONS) {
+  if (NAV_COVERED.has(fn.code)) continue;
+  let cat = CATEGORIES.find((c) => c.label === fn.group);
+  if (!cat) {
+    cat = { label: fn.group, codes: [] };
+    CATEGORIES.push(cat);
+  }
+  cat.codes.push(fn.code);
+  NAV_COVERED.add(fn.code);
 }
 
 export function QuickBar() {
