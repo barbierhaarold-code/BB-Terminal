@@ -3,16 +3,14 @@ import { cn } from "@/lib/cn";
 import { DashboardPanel } from "./crypto/DashboardPanel";
 import { DerivativesPanel } from "./crypto/DerivativesPanel";
 import { LiquidationsPanel } from "./crypto/LiquidationsPanel";
-import { EtfFlowsPanel } from "./crypto/EtfFlowsPanel";
 import { OnChainPanel } from "./crypto/OnChainPanel";
 
-type Tab = "dashboard" | "derivatives" | "liquidations" | "etf" | "onchain";
+type Tab = "dashboard" | "derivatives" | "liquidations" | "onchain";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "dashboard", label: "Dashboard" },
   { id: "derivatives", label: "Derivatives" },
   { id: "liquidations", label: "Liquidations" },
-  { id: "etf", label: "ETF Flows" },
   { id: "onchain", label: "On-Chain" },
 ];
 
@@ -39,7 +37,6 @@ export function CRYPTO() {
         {tab === "dashboard" && <DashboardPanel />}
         {tab === "derivatives" && <DerivativesPanel />}
         {tab === "liquidations" && <LiquidationsPanel />}
-        {tab === "etf" && <EtfFlowsPanel />}
         {tab === "onchain" && <OnChainPanel />}
       </div>
     </div>
