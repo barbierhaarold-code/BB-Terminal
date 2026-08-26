@@ -4,7 +4,7 @@ export type FunctionCode =
   | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
-  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT";
+  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "PORTFOLIO";
 
 export interface FunctionDef {
   code: FunctionCode;
@@ -44,6 +44,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "CURV", name: "US Yield Curve",        needsSymbol: false, group: "Macro", summary: "Treasury par yield curve" },
 
   { code: "TRACK", name: "Track Record",         needsSymbol: false, group: "Journal", summary: "Trading journal — manual log, bulk import, setups, performance stats" },
+  { code: "PORTFOLIO", name: "Portfolio Tracker", needsSymbol: false, group: "Journal", summary: "Open positions, live P&L, sector allocation, performance vs S&P 500, risk stats, watchlist news" },
 ];
 
 export const FN_BY_CODE: Record<string, FunctionDef> = Object.fromEntries(FUNCTIONS.map((f) => [f.code, f]));

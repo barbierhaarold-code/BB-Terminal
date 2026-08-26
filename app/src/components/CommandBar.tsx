@@ -50,7 +50,7 @@ export function CommandBar() {
   }
 
   return (
-    <div className="flex items-center h-10 bg-term-panel border-b border-term-border px-3 gap-4">
+    <div className="flex flex-wrap items-center min-h-10 bg-term-panel border-b border-term-border px-3 py-1.5 sm:py-0 gap-2 sm:gap-4">
       <div className="flex items-center gap-2 select-none shrink-0">
         <span className="w-1.5 h-1.5 bg-term-amber shadow-[0_0_6px_rgba(180,92,255,0.9)]" />
         <span className="text-term-amber font-bold tracking-[0.3em] text-[11px]">ABDEL KHADER</span>
@@ -76,7 +76,7 @@ export function CommandBar() {
           optionally prefixed/suffixed with a symbol. Demoted in width/weight
           now that GlobalSearch is the primary discovery surface, but fully
           functional — codes still work here for anyone who wants them. */}
-      <div className="flex items-center gap-1.5 relative shrink-0 w-[220px]">
+      <div className="flex items-center gap-1.5 relative shrink-0 w-full sm:w-[220px] order-last sm:order-none">
         <span className="text-term-amberDim text-[10px] uppercase tracking-widest">CMD</span>
         <span className="text-term-amberDim text-[11px]">{">"}</span>
         <input

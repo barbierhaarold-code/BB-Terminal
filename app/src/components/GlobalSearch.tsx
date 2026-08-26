@@ -60,7 +60,7 @@ export function GlobalSearch() {
   }
 
   return (
-    <div ref={rootRef} className="relative flex-1 max-w-[380px]">
+    <div ref={rootRef} className="relative flex-1 min-w-[140px] max-w-[380px]">
       <div className={cn(
         "flex items-center gap-2 h-8 px-2.5 border bg-term-bg2 transition-colors",
         open ? "border-term-amber" : "border-term-border"
