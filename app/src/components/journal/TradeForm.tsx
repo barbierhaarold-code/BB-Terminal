@@ -23,6 +23,7 @@ export function TradeForm() {
   const [result, setResult] = useState("");
   const [resultTouched, setResultTouched] = useState(false);
   const [entryAt, setEntryAt] = useState(nowLocalDatetime());
+  const [exitAt, setExitAt] = useState("");
   const [setupId, setSetupId] = useState("");
   const [newSetupOpen, setNewSetupOpen] = useState(false);
   const [newSetupName, setNewSetupName] = useState("");
@@ -46,7 +47,7 @@ export function TradeForm() {
 
   function reset() {
     setSymbol(""); setSize(""); setEntryPrice(""); setExitPrice(""); setResult("");
-    setResultTouched(false); setEntryAt(nowLocalDatetime()); setSetupId("");
+    setResultTouched(false); setEntryAt(nowLocalDatetime()); setExitAt(""); setSetupId("");
     setMacroBias(""); setConviction(""); setNewsEvent(""); setFeeling(""); setNotes("");
   }
 
@@ -58,6 +59,7 @@ export function TradeForm() {
     addTrade({
       symbol: sym, direction, size: sz, entryPrice: ep, exitPrice: xp, result: res,
       entryAt: new Date(entryAt).toISOString(),
+      exitAt: exitAt ? new Date(exitAt).toISOString() : undefined,
       setupId: setupId || undefined,
       macroBias: macroBias || undefined,
       conviction: conviction || undefined,
@@ -114,8 +116,13 @@ export function TradeForm() {
               className={cn(inputCls, "w-full num")} />
           </div>
           <div>
-            <label className={labelCls}>DATE / TIME</label>
+            <label className={labelCls}>DATE / TIME (ENTRY)</label>
             <input type="datetime-local" value={entryAt} onChange={(e) => setEntryAt(e.target.value)}
+              className={cn(inputCls, "w-full num")} />
+          </div>
+          <div>
+            <label className={labelCls}>DATE / TIME (EXIT) — optional</label>
+            <input type="datetime-local" value={exitAt} onChange={(e) => setExitAt(e.target.value)}
               className={cn(inputCls, "w-full num")} />
           </div>
           <div>

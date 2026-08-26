@@ -47,9 +47,10 @@ export function JournalSettings() {
           {pricesHidden ? "◉ P&L hidden" : "○ hide P&L"}
         </button>
         <div className="sub-header normal-case tracking-normal font-normal text-term-muted">
-          Hides per-trade result, $ aggregates, and return/drawdown/risk %.
-          Entry, exit, size, and win-rate-style ratios stay visible — they're
-          not money made or lost.
+          Hides base capital, per-trade result, and $ aggregates (net P&L,
+          gross P/L, avg win/loss). Every % and ratio — win rate, return,
+          drawdown, risk/trade, deposit load, Sharpe, Calmar — stays visible;
+          none of them reveal a dollar figure.
         </div>
       </div>
     </div>

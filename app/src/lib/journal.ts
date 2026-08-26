@@ -24,6 +24,10 @@ export interface Trade {
    * convenience default, not a guaranteed-correct figure). */
   result: number;
   entryAt: string; // ISO datetime
+  /** ISO datetime the trade closed — optional, since neither the manual
+   * form nor the bulk-import format required it before duration tracking
+   * was added. Trades without it just don't count toward avg duration. */
+  exitAt?: string;
   setupId?: string;
   macroBias?: string;
   conviction?: string;
@@ -173,6 +177,21 @@ export interface JournalStats {
    * (lot size, pip value, etc.), since that varies by instrument and isn't
    * tracked here. Undefined when nothing in view has finite size/entry data. */
   riskPerTradePct?: number;
+  /** Same figure as `riskPerTradePct`, shown under its own label to match
+   * the "Deposit Load" stat from the reference terminal: average position
+   * notional as a % of account balance, i.e. how much of the account is
+   * typically deployed per trade. Kept as a separate named field (not a
+   * plain alias) so the two can diverge later if a margin/leverage-based
+   * definition turns out to be wanted instead. */
+  depositLoadPct?: number;
+  /** Average entry-to-exit time across trades that have both timestamps —
+   * trades missing `exitAt` are excluded, not treated as zero duration. */
+  avgDurationMs?: number;
+  /** Trade count normalized to a 7-day rate over the entryAt span of the
+   * trades in view (not the calendar span of any filter) — a single-day
+   * span is floored at 1 day so one busy day doesn't read as an
+   * extrapolated triple-digit weekly rate. */
+  tradesPerWeek: number;
 }
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -306,16 +325,32 @@ export function computeStats(trades: Trade[], baseCapital: number): JournalStats
   const notionals = sorted
     .map((t) => t.size * t.entryPrice)
     .filter((n) => Number.isFinite(n) && n > 0);
-  const riskPerTradePct = hasCapital && notionals.length
-    ? (notionals.reduce((s, v) => s + v, 0) / notionals.length / baseCapital) * 100
+  const avgNotional = notionals.length ? notionals.reduce((s, v) => s + v, 0) / notionals.length : undefined;
+  const riskPerTradePct = hasCapital && avgNotional != null ? (avgNotional / baseCapital) * 100 : undefined;
+  const depositLoadPct = riskPerTradePct;
+
+  const durationsMs = sorted
+    .filter((t): t is Trade & { exitAt: string } => !!t.exitAt)
+    .map((t) => new Date(t.exitAt).getTime() - new Date(t.entryAt).getTime())
+    .filter((ms) => Number.isFinite(ms) && ms > 0);
+  const avgDurationMs = durationsMs.length
+    ? durationsMs.reduce((s, v) => s + v, 0) / durationsMs.length
     : undefined;
+
+  let tradesPerWeek = 0;
+  if (sorted.length > 0) {
+    const times = sorted.map((t) => new Date(t.entryAt).getTime());
+    const spanDays = Math.max(1, (Math.max(...times) - Math.min(...times)) / 86_400_000);
+    tradesPerWeek = sorted.length / (spanDays / 7);
+  }
 
   return {
     count: sorted.length, winRate, profitFactor, maxDrawdown: maxDD, sharpe, recoveryFactor,
     expectancy, grossProfit, grossLoss, netProfit, avgWin, avgLoss,
     longestWinStreak: longestWin, longestLossStreak: longestLoss, currentDrawdown,
     byPeriod, periodGranularity, bestTrade, worstTrade, byDirection, byWeekday, equityCurve,
-    baseCapital, returnPct, maxDrawdownPct, currentDrawdownPct, avgWinPct, avgLossPct, calmar, riskPerTradePct,
+    baseCapital, returnPct, maxDrawdownPct, currentDrawdownPct, avgWinPct, avgLossPct, calmar,
+    riskPerTradePct, depositLoadPct, avgDurationMs, tradesPerWeek,
   };
 }
 

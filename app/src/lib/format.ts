@@ -50,6 +50,16 @@ export function fmtTime(iso: string) {
   } catch { return iso; }
 }
 
+export function fmtDuration(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return "—";
+  const mins = ms / 60_000;
+  if (mins < 60) return `${Math.round(mins)}m`;
+  const hours = mins / 60;
+  if (hours < 24) return `${Math.floor(hours)}h ${Math.round(mins % 60)}m`;
+  const days = hours / 24;
+  return `${Math.floor(days)}d ${Math.round(hours % 24)}h`;
+}
+
 export function dirClass(v: number | null | undefined): "up" | "down" | "flat" {
   if (v == null || Number.isNaN(v)) return "flat";
   return v >= 0 ? "up" : "down";

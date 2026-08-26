@@ -1,7 +1,7 @@
 import type { Trade } from "@/lib/journal";
 import { computeStats, mask } from "@/lib/journal";
 import { useJournal } from "@/store/journalStore";
-import { fmtPrice, fmtPct } from "@/lib/format";
+import { fmtPrice, fmtPct, fmtDuration } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
 type Tone = "up" | "down" | "neutral";
@@ -86,27 +86,30 @@ export function StatsPanel({ trades }: { trades: Trade[] }) {
     <div className="panel">
       <div className="panel-header">
         <span>PERFORMANCE</span>
-        <span className="sub-header normal-case tracking-normal font-normal">{s.count} trades in view</span>
+        <span className="sub-header normal-case tracking-normal font-normal">
+          {s.count} trades in view · avg hold {s.avgDurationMs != null ? fmtDuration(s.avgDurationMs) : "—"} · {s.tradesPerWeek.toFixed(1)}/wk
+        </span>
       </div>
       <div className="p-3 flex flex-col gap-3">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <Metric label="WIN RATE" value={fmtPct(s.winRate, 1)} tone={toneOf(s.winRate - 50)} />
           <Metric label="PROFIT FACTOR" value={s.profitFactor != null ? s.profitFactor.toFixed(2) : "—"} tone={toneOf(s.profitFactor != null ? s.profitFactor - 1 : undefined)} />
-          <Metric label="RETURN" value={mask(fmtPct(s.returnPct, 2), h)} tone={toneOf(s.returnPct)} />
+          <Metric label="RETURN" value={fmtPct(s.returnPct, 2)} tone={toneOf(s.returnPct)} />
           <Metric label="CALMAR (RETURN% / MAXDD%)" value={s.calmar != null ? s.calmar.toFixed(2) : "—"} tone={toneOf(s.calmar)} />
 
           <DualMetric label="NET P&L" dollar={signed(s.netProfit)} tone={toneOf(s.netProfit)} hidden={h} />
           <DualMetric label="EXPECTANCY / TRADE" dollar={signed(s.expectancy)} tone={toneOf(s.expectancy)} hidden={h} />
-          <DualMetric label="MAX DRAWDOWN" dollar={fmtPrice(s.maxDrawdown, 2)} pct={mask(fmtPct(s.maxDrawdownPct, 2), h)} tone={s.maxDrawdown > 0 ? "down" : "neutral"} hidden={h} />
-          <DualMetric label="CURRENT DRAWDOWN" dollar={fmtPrice(s.currentDrawdown, 2)} pct={mask(`vs max ${fmtPct(s.maxDrawdownPct, 2)}`, h)} tone={s.currentDrawdown > 0 ? "down" : "neutral"} hidden={h} />
+          <DualMetric label="MAX DRAWDOWN" dollar={fmtPrice(s.maxDrawdown, 2)} pct={fmtPct(s.maxDrawdownPct, 2)} tone={s.maxDrawdown > 0 ? "down" : "neutral"} hidden={h} />
+          <DualMetric label="CURRENT DRAWDOWN" dollar={fmtPrice(s.currentDrawdown, 2)} pct={`vs max ${fmtPct(s.maxDrawdownPct, 2)}`} tone={s.currentDrawdown > 0 ? "down" : "neutral"} hidden={h} />
 
           <DualMetric label="AVG WIN" dollar={signed(s.avgWin)} pct={fmtPct(s.avgWinPct, 2)} tone="up" hidden={h} />
           <DualMetric label="AVG LOSS" dollar={signed(s.avgLoss)} pct={fmtPct(s.avgLossPct, 2)} tone="down" hidden={h} />
           <Metric label="LONGEST WIN / LOSS STREAK" value={`${s.longestWinStreak} / ${s.longestLossStreak}`} />
-          <Metric label="RISK / TRADE (NOTIONAL, EST.)" value={s.riskPerTradePct != null ? mask(fmtPct(s.riskPerTradePct, 2), h) : "—"} />
+          <Metric label="RISK / TRADE (NOTIONAL, EST.)" value={s.riskPerTradePct != null ? fmtPct(s.riskPerTradePct, 2) : "—"} />
 
           <Metric label="RECOVERY FACTOR" value={s.recoveryFactor != null ? s.recoveryFactor.toFixed(2) : "—"} />
           <Metric label="SHARPE (PER-TRADE)" value={s.sharpe != null ? s.sharpe.toFixed(2) : "—"} tone={toneOf(s.sharpe)} />
+          <Metric label="DEPOSIT LOAD (AVG NOTIONAL, EST.)" value={s.depositLoadPct != null ? fmtPct(s.depositLoadPct, 2) : "—"} />
           <DualMetric label="GROSS P / L" dollar={`${fmtPrice(s.grossProfit, 0)} / ${fmtPrice(s.grossLoss, 0)}`} hidden={h} />
         </div>
 
