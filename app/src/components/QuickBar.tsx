@@ -62,7 +62,7 @@ export function QuickBar() {
   }
 
   return (
-    <div ref={rootRef} className="flex items-stretch h-9 bg-term-bg2 border-b border-term-border relative">
+    <div ref={rootRef} className="flex items-stretch h-9 bg-term-bg2 border-b border-term-border relative overflow-x-auto scroll-thin">
       {/* Home — pinned, not nested */}
       <NavButton label="Home" isActive={activeCode === "CC"} onClick={() => go("CC")} />
 
@@ -115,7 +115,7 @@ export function QuickBar() {
       })}
 
       {/* Help — pinned at the end, small */}
-      <div className="ml-auto">
+      <div className="ml-auto shrink-0">
         <NavButton label="Help" isActive={activeCode === "HELP"} onClick={() => go("HELP")} />
       </div>
     </div>
@@ -129,7 +129,7 @@ function NavButton({ label, isActive, onClick, chevron }: {
     <button
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1 px-3.5 h-full text-[11px] uppercase tracking-[0.12em] border-r border-term-border transition-colors",
+        "flex items-center gap-1 px-3.5 h-full text-[11px] uppercase tracking-[0.12em] border-r border-term-border transition-colors shrink-0",
         isActive ? "bg-term-amberSubtle text-term-amber font-semibold" : "text-term-muted hover:bg-term-panel2 hover:text-term-text"
       )}
     >

@@ -35,11 +35,11 @@ export function StatusBar() {
           } />
           <span>OPENBB {apiOk == null ? "…" : apiOk ? "LIVE" : "DOWN"}</span>
         </span>
-        <span>PROVIDER <span className="text-term-amber ml-1">YFINANCE</span></span>
-        <span>TABS <span className="text-term-text ml-1 num">{tabs.length}</span></span>
+        <span className="hidden sm:inline">PROVIDER <span className="text-term-amber ml-1">YFINANCE</span></span>
+        <span className="hidden sm:inline">TABS <span className="text-term-text ml-1 num">{tabs.length}</span></span>
       </div>
       <div className="flex items-center gap-5 num">
-        <span>{now.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" })}</span>
+        <span className="hidden sm:inline">{now.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" })}</span>
         <span className="text-term-amber">{now.toLocaleTimeString()}</span>
       </div>
     </div>

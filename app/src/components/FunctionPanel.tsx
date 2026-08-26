@@ -22,7 +22,7 @@ export function FunctionPanel({ code, symbol, children }: Props) {
           )}
           <span className="text-term-muted/50 text-[9px] font-normal">{code}</span>
         </div>
-        <div className="text-term-muted normal-case tracking-normal font-normal text-[10px]">
+        <div className="hidden md:block text-term-muted normal-case tracking-normal font-normal text-[10px] truncate max-w-[40%]">
           {fn.summary}
         </div>
       </div>
