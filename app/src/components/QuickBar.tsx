@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 import { useWorkspace } from "@/store/workspaceStore";
 import { FUNCTIONS, FN_BY_CODE, type FunctionCode } from "@/lib/functions";
@@ -45,21 +46,59 @@ export function QuickBar() {
   const { openTab, activeSymbol, tabs, activeTabId } = useWorkspace();
   const activeCode = tabs.find((t) => t.id === activeTabId)?.code;
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  // Dropdown position, captured from the trigger button's own bounding box
+  // at open time. The panel itself is portaled to <body> (see below), not
+  // rendered inline, so it needs an explicit screen position instead of
+  // relying on `absolute` + a `relative` ancestor.
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpenGroup(null);
+      const t = e.target as Node;
+      // The dropdown is portaled outside rootRef, so an "outside click"
+      // check against rootRef alone would treat every click inside the
+      // open dropdown as outside and close it instantly — check both.
+      if (rootRef.current?.contains(t)) return;
+      if (menuRef.current?.contains(t)) return;
+      setOpenGroup(null);
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
+
+  useEffect(() => {
+    if (!openGroup) return;
+    // The panel is positioned in fixed screen coordinates captured once at
+    // open time — resizing the window would leave it visually detached from
+    // its trigger, so just close it rather than track a stale position.
+    // (Deliberately NOT closing on nav-row scroll: a horizontal swipe can
+    // still be settling — momentum scroll, or the scrollIntoView a tap on a
+    // partly-offscreen trigger causes — right as the menu opens, and a
+    // scroll listener here would catch that trailing scroll and close the
+    // menu it just opened. A dropdown that's merely out of sync with a
+    // since-scrolled trigger is a much smaller cost than one that closes
+    // itself moments after opening.)
+    const close = () => setOpenGroup(null);
+    window.addEventListener("resize", close);
+    return () => window.removeEventListener("resize", close);
+  }, [openGroup]);
 
   function go(code: FunctionCode) {
     const fn = FN_BY_CODE[code];
     openTab(code, fn.needsSymbol ? (activeSymbol ?? "AAPL") : undefined);
     setOpenGroup(null);
   }
+
+  function toggleGroup(label: string, trigger: HTMLElement) {
+    if (openGroup === label) { setOpenGroup(null); return; }
+    const r = trigger.getBoundingClientRect();
+    setMenuPos({ top: r.bottom, left: r.left });
+    setOpenGroup(label);
+  }
+
+  const openCat = CATEGORIES.find((c) => c.label === openGroup);
 
   return (
     <div ref={rootRef} className="flex items-stretch h-9 bg-term-bg2 border-b border-term-border relative overflow-x-auto scroll-thin">
@@ -81,36 +120,13 @@ export function QuickBar() {
           );
         }
         return (
-          <div key={cat.label} className="relative">
-            <NavButton
-              label={cat.label}
-              isActive={containsActive}
-              chevron
-              onClick={() => setOpenGroup(isOpen ? null : cat.label)}
-            />
-            {isOpen && (
-              <div className="absolute top-full left-0 z-50 bg-term-panel border border-term-border shadow-panel min-w-[220px] py-1">
-                {cat.codes.map((code) => {
-                  const fn = FN_BY_CODE[code];
-                  const isActive = code === activeCode;
-                  return (
-                    <button
-                      key={code}
-                      onClick={() => go(code)}
-                      title={fn.summary}
-                      className={cn(
-                        "w-full flex items-baseline gap-3 px-3 py-1.5 text-left text-[12px]",
-                        isActive ? "bg-term-amberSubtle text-term-amber" : "text-term-text hover:bg-term-panel2 hover:text-term-heading"
-                      )}
-                    >
-                      <span className="flex-1">{fn.name}</span>
-                      <span className="num text-[9px] text-term-muted/60 tracking-[0.15em]">{fn.code}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <NavButton
+            key={cat.label}
+            label={cat.label}
+            isActive={containsActive || isOpen}
+            chevron
+            onClick={(e) => toggleGroup(cat.label, e.currentTarget)}
+          />
         );
       })}
 
@@ -118,12 +134,45 @@ export function QuickBar() {
       <div className="ml-auto shrink-0">
         <NavButton label="Help" isActive={activeCode === "HELP"} onClick={() => go("HELP")} />
       </div>
+
+      {/* Portaled to <body> so the QuickBar row's own overflow-x-auto (needed
+          to keep the row itself from forcing page-wide horizontal scroll on
+          narrow viewports) can't clip it — an overflow ancestor clips *any*
+          descendant, including `position: absolute` ones, regardless of
+          which element is its positioning context. */}
+      {openCat && menuPos && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: "fixed", top: menuPos.top, left: menuPos.left }}
+          className="z-50 bg-term-panel border border-term-border shadow-panel min-w-[220px] py-1"
+        >
+          {openCat.codes.map((code) => {
+            const fn = FN_BY_CODE[code];
+            const isActive = code === activeCode;
+            return (
+              <button
+                key={code}
+                onClick={() => go(code)}
+                title={fn.summary}
+                className={cn(
+                  "w-full flex items-baseline gap-3 px-3 py-1.5 text-left text-[12px]",
+                  isActive ? "bg-term-amberSubtle text-term-amber" : "text-term-text hover:bg-term-panel2 hover:text-term-heading"
+                )}
+              >
+                <span className="flex-1">{fn.name}</span>
+                <span className="num text-[9px] text-term-muted/60 tracking-[0.15em]">{fn.code}</span>
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
 
 function NavButton({ label, isActive, onClick, chevron }: {
-  label: string; isActive: boolean; onClick: () => void; chevron?: boolean;
+  label: string; isActive: boolean; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; chevron?: boolean;
 }) {
   return (
     <button
