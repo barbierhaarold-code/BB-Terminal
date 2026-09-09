@@ -652,6 +652,92 @@ function congressProxyPlugin(): Plugin {
   };
 }
 
+// ────────────────────────────────────────────────────────────
+// AI Copilot proxy (COPILOT panel) — forwards the chat/tool-calling loop to
+// Anthropic's Messages API with the server-held key attached. There is
+// deliberately no custom Python backend route for this: `openbb-api` on
+// :6900 is a pip-installed package assembled by the OpenBB Platform itself,
+// not code that lives in this repo (see quant_service/main.py's own comment
+// for the same conclusion reached there), and the four Copilot tools need
+// live access to browser-only state anyway — Track Record's trades and
+// Portfolio's positions are Zustand stores persisted to localStorage
+// (journalStore.ts / portfolioStore.ts), never synced to any backend. So the
+// tool-calling loop itself runs client-side (see lib/copilotTools.ts), where
+// it can call the exact same store getters and lib/api.ts fetchers the UI
+// panels already use — zero reimplemented data access. This proxy's only
+// job is keeping ANTHROPIC_API_KEY out of the browser bundle, same reasoning
+// as spotMetalsPlugin/getXApiProxyPlugin above. The model string is forced
+// here (not trusted from the request body) so it stays a one-line change.
+const COPILOT_MODEL = "claude-sonnet-5";
+const COPILOT_MAX_TOKENS = 2048;
+const ANTHROPIC_VERSION = "2023-06-01";
+
+function copilotProxyPlugin(apiKey: string | undefined): Plugin {
+  async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
+    if (req.url !== "/copilot-proxy/messages" || req.method !== "POST") { next(); return; }
+
+    res.setHeader("content-type", "application/json");
+    if (!apiKey) {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ results: null, warnings: [{ message: "ANTHROPIC_API_KEY not configured — add it to app/.env and restart the dev server." }] }));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    } catch {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ results: null, warnings: [{ message: "Malformed request body" }] }));
+      return;
+    }
+
+    try {
+      const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+        },
+        body: JSON.stringify({ ...payload, model: COPILOT_MODEL, max_tokens: payload.max_tokens ?? COPILOT_MAX_TOKENS }),
+      });
+      const json = await upstream.json();
+      if (!upstream.ok) {
+        const message = json?.error?.message ?? `Anthropic API error (${upstream.status})`;
+        res.statusCode = upstream.status;
+        res.end(JSON.stringify({ results: null, warnings: [{ message }] }));
+        return;
+      }
+      // Verification aid: log which tools the model actually invoked, right
+      // where every other upstream call in this file already logs — visible
+      // in the same dev-server terminal as the OpenBB/spot/COT proxy traffic.
+      const toolCalls = Array.isArray(json?.content)
+        ? json.content.filter((b: { type?: string }) => b?.type === "tool_use").map((b: { name?: string }) => b.name)
+        : [];
+      if (toolCalls.length > 0) {
+        console.log(`[copilot] tool_use: ${toolCalls.join(", ")}`);
+      }
+      res.end(JSON.stringify({ results: json }));
+    } catch (err) {
+      res.statusCode = 502;
+      res.end(JSON.stringify({ results: null, warnings: [{ message: String((err as Error)?.message ?? err) }] }));
+    }
+  }
+
+  return {
+    name: "bbterminal-copilot-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(handle);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle);
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname), "");
   return {
@@ -664,6 +750,7 @@ export default defineConfig(({ mode }) => {
       getXApiProxyPlugin(env.GETX_API_KEY),
       predictionMarketsProxyPlugin(),
       congressProxyPlugin(),
+      copilotProxyPlugin(env.ANTHROPIC_API_KEY),
     ],
     resolve: {
       alias: { "@": path.resolve(__dirname, "src") },

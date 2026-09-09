@@ -4,7 +4,7 @@ export type FunctionCode =
   | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
-  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "PORTFOLIO";
+  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "PORTFOLIO" | "COPILOT";
 
 export interface FunctionDef {
   code: FunctionCode;
@@ -17,6 +17,9 @@ export interface FunctionDef {
 export const FUNCTIONS: FunctionDef[] = [
   { code: "CC",   name: "Command Center",        needsSymbol: false, group: "System", summary: "Morning briefing · markets, curve, FX, movers, news" },
   { code: "HELP", name: "Function Directory",    needsSymbol: false, group: "System", summary: "List of all terminal functions" },
+  // Intercepted in workspaceStore.openTab — opens the dockable AI Copilot
+  // side panel instead of becoming a workspace tab (see copilotStore.ts).
+  { code: "COPILOT", name: "AI Copilot",         needsSymbol: false, group: "System", summary: "Chat with the terminal's data — scalper, track record, news, portfolio" },
 
   { code: "INTEL", name: "Stock Intelligence",   needsSymbol: true,  group: "Security", summary: "Full scorecard — signals across technical, value, fundamentals, analysts" },
   { code: "RESEARCH", name: "Equity Research",   needsSymbol: true,  group: "Security", summary: "Deep-dive workspace — DCF, fundamentals grade, financials, ownership, ratings, peers" },
