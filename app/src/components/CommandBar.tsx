@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { Bot } from "lucide-react";
 import { parseCommand, FUNCTIONS } from "@/lib/functions";
 import { useWorkspace } from "@/store/workspaceStore";
+import { useCopilot } from "@/store/copilotStore";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { cn } from "@/lib/cn";
 
@@ -13,6 +15,7 @@ export function CommandBar() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { openTab, activeSymbol } = useWorkspace();
+  const { isOpen: copilotOpen, toggle: toggleCopilot } = useCopilot();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -59,6 +62,21 @@ export function CommandBar() {
       {/* Primary, always-visible way to find an instrument — equity, forex
           pair, metal, or crypto — without knowing a function code. */}
       <GlobalSearch />
+
+      {/* Always-visible AI Copilot toggle — independent of the command bar's
+          COPILOT code (both open the same dockable panel; see workspaceStore's
+          openTab interception). Lives here, not QuickBar, so it can't scroll
+          out of view on narrow viewports (QuickBar's row is overflow-x-auto). */}
+      <button
+        onClick={toggleCopilot}
+        title="AI Copilot"
+        className={cn(
+          "flex items-center gap-1.5 px-2 py-1 border shrink-0 transition-colors",
+          copilotOpen ? "border-term-amber bg-term-amberSubtle text-term-amber" : "border-term-border text-term-muted hover:border-term-amberDim hover:text-term-amberBright"
+        )}
+      >
+        <Bot size={13} />
+      </button>
 
       {/* Active ticker context — the symbol GP/KEY/FA/etc. carry when opened
           from a stock page. Made a standalone badge (not buried in the hint

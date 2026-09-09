@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { FunctionCode } from "@/lib/functions";
+import { useCopilot } from "@/store/copilotStore";
 
 export interface Tab {
   id: string;
@@ -27,6 +28,11 @@ export const useWorkspace = create<WorkspaceState>()(
       activeTabId: "CC:_",
       activeSymbol: "AAPL",
       openTab: (code, symbol) => {
+        // COPILOT is a dockable side panel, not a workspace tab (see
+        // copilotStore.ts) — every call site (CommandBar, QuickBar, HELP)
+        // goes through this one function, so intercepting here once covers
+        // all of them instead of special-casing each caller.
+        if (code === "COPILOT") { useCopilot.getState().open(); return; }
         const s = symbol?.toUpperCase();
         const id = tabId(code, s);
         const { tabs } = get();

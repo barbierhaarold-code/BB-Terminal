@@ -1,12 +1,15 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { CommandBar } from "@/components/CommandBar";
 import { QuickBar } from "@/components/QuickBar";
 import { WorkspaceTabs } from "@/components/WorkspaceTabs";
 import { StatusBar } from "@/components/StatusBar";
 import { TickerTape } from "@/components/TickerTape";
 import { FunctionPanel } from "@/components/FunctionPanel";
+import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { useWorkspace } from "@/store/workspaceStore";
-import { FUNCTIONS } from "@/lib/functions";
+import { useCopilot } from "@/store/copilotStore";
+import { FUNCTIONS, type FunctionCode } from "@/lib/functions";
+import type { CurrentView } from "@/lib/copilotConfig";
 
 import { CC } from "@/functions/CC";
 import { INTEL } from "@/functions/INTEL";
@@ -64,10 +67,26 @@ const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   PORTFOLIO: () => <PORTFOLIO />,
 };
 
+// Which Copilot `current_view` label a given active tab corresponds to —
+// only the four in-scope modules get a specific label; everything else
+// (including tabs added in a later session) falls back to "other" rather
+// than needing this list kept in lockstep with every future function.
+const VIEW_BY_CODE: Partial<Record<FunctionCode, CurrentView>> = {
+  FXC: "forex_scalper",
+  TRACK: "track_record",
+  NH: "news_hub",
+  PORTFOLIO: "portfolio",
+};
+
 export default function App() {
   const { tabs, activeTabId } = useWorkspace();
+  const setCurrentView = useCopilot((s) => s.setCurrentView);
   const active = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? tabs[0], [tabs, activeTabId]);
   const screen = active && SCREENS[active.code]?.(active.symbol);
+
+  useEffect(() => {
+    setCurrentView(active ? VIEW_BY_CODE[active.code] ?? "other" : "other");
+  }, [active, setCurrentView]);
 
   return (
     <div className="h-screen flex flex-col">
@@ -83,6 +102,7 @@ export default function App() {
       </div>
       <TickerTape />
       <StatusBar />
+      <CopilotPanel />
     </div>
   );
 }
