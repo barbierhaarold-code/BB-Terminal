@@ -64,6 +64,19 @@ else
     || fail "Failed to apply openbb-yfinance patch (see $PATCH_FILE) — options chain endpoint will crash on Yahoo's transient crumb errors without it"
 fi
 
+step "Applying date-offset patch to openbb-nasdaq (econ calendar filed one day late)"
+NASDAQ_TARGET="$SITE_PKGS/openbb_nasdaq/models/economic_calendar.py"
+NASDAQ_PATCH="$ROOT/patches/openbb_nasdaq-economic-calendar-date-offset.patch"
+if [ ! -f "$NASDAQ_TARGET" ]; then
+  fail "openbb_nasdaq/models/economic_calendar.py not found under $SITE_PKGS — install layout may have changed, patch needs updating"
+elif grep -q "_corrected_datetime" "$NASDAQ_TARGET"; then
+  ok "Econ-calendar date-offset patch already applied"
+else
+  patch -p1 -d "$SITE_PKGS" < "$NASDAQ_PATCH" \
+    && ok "Applied openbb-nasdaq econ-calendar date-offset patch" \
+    || fail "Failed to apply openbb-nasdaq patch (see $NASDAQ_PATCH) — every econ-calendar event would show one day late and Friday releases (NFP, CPI) would be missing without it"
+fi
+
 # -------- UI dependencies --------
 step "Installing UI dependencies"
 ( cd "$ROOT/app" && npm install --silent )

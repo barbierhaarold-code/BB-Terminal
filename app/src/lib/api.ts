@@ -476,6 +476,11 @@ export interface EconCalendarEvent {
   date: string; country: string; event: string;
   actual?: string; consensus?: string; previous?: string; description?: string;
 }
+// `date` is corrected for Nasdaq's uniform one-day-late filing (and its
+// dropped weekend buckets) inside the openbb-nasdaq provider — see
+// patches/openbb_nasdaq-economic-calendar-date-offset.patch. Every consumer
+// of this fetcher (the Econ Calendar panel and the copilot's
+// get_econ_calendar tool) inherits the fix; don't re-shift dates here.
 export const fetchEconCalendar = (startDate: string, endDate: string) =>
   get<EconCalendarEvent[]>("/economy/calendar", {
     provider: "nasdaq", start_date: startDate, end_date: endDate,
