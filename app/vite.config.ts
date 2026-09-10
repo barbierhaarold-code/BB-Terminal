@@ -294,18 +294,79 @@ function cotProxyPlugin(): Plugin {
 // returns a 404 "Grow/Venture plan required" for XAG/USD — so only gold
 // moves onto this feed; silver stays on SI=F with its futures disclaimer.
 //
-// The free tier is capped at 8 API credits/minute — `/time_series` costs
-// noticeably more per call than `/quote` (verified by exhausting the
+// The free tier is capped at 8 API credits/minute (and 800/day) — `/time_series`
+// costs noticeably more per call than `/quote` (verified by exhausting the
 // per-minute cap while probing this), so the two are cached very
 // differently: `/quote` (last/high/low/change) is cheap and cached for
 // 20s to match the existing board/scalper poll cadence; `/time_series`
 // (candles, only needed for ATR) is expensive and cached for 5 minutes,
 // however many components ask for either.
+//
+// This is the single choke point for every Twelve Data credit the app spends:
+// XauScalper (quote + ATR series), TickerTape (quote), the FX board's gold
+// row (renders <XauScalper/>, no own fetch), and the Copilot's
+// get_scalper_snapshot tool (imperative fetchSpotQuote, outside React Query)
+// all route through `/spot-proxy/*`. Two things on top of the symbol-keyed
+// cache keep a burst of those consumers from each spending a credit:
+//   1. single-flight — concurrent misses for the same key await one upstream
+//      call instead of each firing their own (React Query dedupes its own
+//      refetch, but a cold load + a StrictMode double-mount + a Copilot
+//      question landing on the same tick are not one query);
+//   2. a per-symbol request counter, logged every call, so "how many Twelve
+//      Data credits did that sequence actually cost" is answerable from the
+//      dev-server terminal (dev/build-only file — never ships to the browser).
+// A cache-miss that comes back rate-limited is surfaced verbatim (honest
+// "data unavailable", no retry) and is NOT cached, so recovery is immediate.
 function spotMetalsPlugin(apiKey: string | undefined): Plugin {
   const TARGET = "https://api.twelvedata.com";
   const QUOTE_TTL_MS = 20_000;
   const SERIES_TTL_MS = 5 * 60_000;
   const cache = new Map<string, { body: string; expires: number }>();
+  // key -> in-flight upstream call, so concurrent misses coalesce to one.
+  const inflight = new Map<string, Promise<{ ok: boolean; body: string }>>();
+  // Per-symbol tally within a rolling QUOTE_TTL_MS window: `served` = client
+  // requests answered, `upstream` = actual Twelve Data calls made (credits
+  // spent). In steady state upstream should be 0–1 per window per symbol.
+  const usage = new Map<string, { served: number; upstream: number; windowStart: number }>();
+
+  function bump(symbol: string, field: "served" | "upstream"): { served: number; upstream: number } {
+    const now = Date.now();
+    let u = usage.get(symbol);
+    if (!u || now - u.windowStart >= QUOTE_TTL_MS) {
+      u = { served: 0, upstream: 0, windowStart: now };
+      usage.set(symbol, u);
+    }
+    u[field] += 1;
+    return u;
+  }
+
+  async function callUpstream(kind: "quote" | "series", symbol: string, interval: string, cacheKey: string, ttl: number) {
+    const existing = inflight.get(cacheKey);
+    if (existing) return existing;
+
+    const p = (async (): Promise<{ ok: boolean; body: string }> => {
+      bump(symbol, "upstream");
+      const upstreamPath = kind === "series"
+        ? `/time_series?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&outputsize=100&apikey=${apiKey}`
+        : `/quote?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
+      const upstream = await fetch(TARGET + upstreamPath);
+      const json = await upstream.json();
+      if (!upstream.ok || json.status === "error") {
+        // Not cached — a transient rate-limit clears on the next call.
+        throw new Error(json.message ?? `Twelve Data error (${upstream.status})`);
+      }
+      const body = JSON.stringify({ results: json });
+      cache.set(cacheKey, { body, expires: Date.now() + ttl });
+      return { ok: true, body };
+    })();
+
+    inflight.set(cacheKey, p);
+    try {
+      return await p;
+    } finally {
+      inflight.delete(cacheKey);
+    }
+  }
 
   async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
     if (!req.url?.startsWith("/spot-proxy/") || req.method !== "GET") { next(); return; }
@@ -324,30 +385,26 @@ function spotMetalsPlugin(apiKey: string | undefined): Plugin {
     const ttl = kind === "series" ? SERIES_TTL_MS : QUOTE_TTL_MS;
     const cacheKey = kind === "series" ? `series:${symbol}:${interval}` : `quote:${symbol}`;
     const now = Date.now();
+    const u = bump(symbol, "served");
 
     const hit = cache.get(cacheKey);
     if (hit && hit.expires > now) {
       res.setHeader("x-bbterminal-cache", "HIT");
+      console.log(`[spot-proxy] ${symbol} ${kind} HIT — window: ${u.upstream} upstream / ${u.served} served`);
       res.end(hit.body);
       return;
     }
 
+    const coalesced = inflight.has(cacheKey);
     try {
-      const upstreamPath = kind === "series"
-        ? `/time_series?symbol=${encodeURIComponent(symbol)}&interval=${encodeURIComponent(interval)}&outputsize=100&apikey=${apiKey}`
-        : `/quote?symbol=${encodeURIComponent(symbol)}&apikey=${apiKey}`;
-      const upstream = await fetch(TARGET + upstreamPath);
-      const json = await upstream.json();
-      if (!upstream.ok || json.status === "error") {
-        throw new Error(json.message ?? `Twelve Data error (${upstream.status})`);
-      }
-      const body = JSON.stringify({ results: json });
-      cache.set(cacheKey, { body, expires: now + ttl });
-      res.setHeader("x-bbterminal-cache", "MISS");
+      const { body } = await callUpstream(kind, symbol, interval, cacheKey, ttl);
+      res.setHeader("x-bbterminal-cache", coalesced ? "COALESCED" : "MISS");
+      console.log(`[spot-proxy] ${symbol} ${kind} ${coalesced ? "COALESCED" : "MISS"} — window: ${u.upstream} upstream / ${u.served} served`);
       res.end(body);
     } catch (err) {
       res.statusCode = 502;
       res.setHeader("x-bbterminal-cache", "ERROR");
+      console.log(`[spot-proxy] ${symbol} ${kind} ERROR — window: ${u.upstream} upstream / ${u.served} served — ${String((err as Error)?.message ?? err)}`);
       res.end(JSON.stringify({ results: null, warnings: [{ message: String((err as Error)?.message ?? err) }] }));
     }
   }
