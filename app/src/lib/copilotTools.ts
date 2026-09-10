@@ -20,7 +20,7 @@ import {
 } from "@/lib/portfolio";
 import { usePortfolio } from "@/store/portfolioStore";
 import { estimateImpact } from "@/lib/econCalendar";
-import { weekRange, addWeeks } from "@/lib/weekview";
+import { toYmd } from "@/lib/weekview";
 import type { AnthropicTool } from "@/lib/copilotClient";
 
 export const COPILOT_TOOLS: AnthropicTool[] = [
@@ -41,11 +41,21 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
   },
   {
     name: "get_news_headlines",
-    description: "Recent market/forex news headlines and upcoming economic calendar events (with an estimated impact rating). Use for any question about recent news or what's on the economic calendar.",
+    description: "Recent market/forex news headlines. Use for any question about recent news. For the economic calendar / upcoming data releases, use get_econ_calendar instead.",
     input_schema: {
       type: "object",
       properties: {
         limit: { type: "integer", description: "Max headlines to return (default 15, max 40)." },
+      },
+    },
+  },
+  {
+    name: "get_econ_calendar",
+    description: "Upcoming economic calendar events (data releases, central-bank events, auctions) from now forward. Defaults to a 7-day window to match the Econ Calendar module's week view. Each event carries an ESTIMATED impact rating (high/medium/low) derived from a keyword + economy-size heuristic — Nasdaq's free calendar ships no licensed impact rating, so always relay it as an estimate, never as a definitive call. Use for any question about what's on the calendar or the next high-impact event.",
+    input_schema: {
+      type: "object",
+      properties: {
+        daysAhead: { type: "integer", description: "How many days forward to look from today (default 7, min 1, max 30)." },
       },
     },
   },
@@ -144,25 +154,59 @@ async function toolNewsHeadlines(input: { limit?: number }) {
     .slice(0, limit)
     .map((n) => ({ title: n.title, date: n.date, source: n.source, url: n.url }));
 
+  return { headlines };
+}
+
+// ────────────────────────────────────────────────────────────
+// get_econ_calendar
+// ────────────────────────────────────────────────────────────
+// Split out of get_news_headlines: that only ever looked at the current
+// Mon–Fri (plus next week, and only if this week had <5 events left), so on a
+// busy midweek the copilot couldn't see Friday, let alone the following week.
+// This pulls a real N-day window (default 7, matching the Econ Calendar
+// module's week view) in a single /economy/calendar call — the same fetcher
+// and the same estimateImpact() the UI panel uses, no reimplementation.
+async function toolEconCalendar(input: { daysAhead?: number }) {
+  const daysAhead = Math.min(Math.max(Math.trunc(input.daysAhead ?? 7), 1), 30);
   const now = new Date();
-  const thisWeek = weekRange(now);
-  let events = await fetchEconCalendar(thisWeek.monday, thisWeek.friday).catch(() => []);
-  let upcoming = events.filter((e) => new Date(e.date) >= now);
-  if (upcoming.length < 5) {
-    const nextWeek = weekRange(addWeeks(now, 1));
-    const more = await fetchEconCalendar(nextWeek.monday, nextWeek.friday).catch(() => []);
-    upcoming = [...upcoming, ...more];
-  }
-  const upcomingEvents = upcoming
-    .sort((a, b) => (a.date < b.date ? -1 : 1))
-    .slice(0, 15)
+  const end = new Date(now);
+  end.setDate(end.getDate() + daysAhead);
+
+  const events = await fetchEconCalendar(toYmd(now), toYmd(end))
+    .catch((e: Error) => ({ available: false as const, reason: e.message }));
+  if (!Array.isArray(events)) return events;
+
+  const upcoming = events
+    .filter((e) => new Date(e.date) >= now)
     .map((e) => ({
       date: e.date, country: e.country, event: e.event,
       consensus: e.consensus, previous: e.previous,
       impact: estimateImpact(e),
-    }));
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
 
-  return { headlines, upcomingEvents };
+  // A 7-day nasdaq window is 300+ rows, mostly low-impact auctions/energy
+  // stats. Keep every high/medium event no matter how far out, then top up
+  // with the soonest low-impact ones to a bounded total — so "the next
+  // high-impact release" is never the thing that gets truncated away.
+  const CAP = 120;
+  const notable = upcoming.filter((e) => e.impact !== "low");
+  const low = upcoming.filter((e) => e.impact === "low");
+  const shown = [...notable, ...low.slice(0, Math.max(0, CAP - notable.length))]
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  return {
+    rangeStart: toYmd(now),
+    rangeEnd: toYmd(end),
+    daysAhead,
+    impactNote:
+      "The impact field is an ESTIMATE (keyword + economy-size heuristic) — " +
+      "Nasdaq's free calendar ships no licensed impact rating. Relay it as an " +
+      "estimate, never as a definitive high/low call.",
+    counts: { total: upcoming.length, notable: notable.length, returned: shown.length },
+    lowImpactTruncated: low.length > Math.max(0, CAP - notable.length),
+    events: shown,
+  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -236,6 +280,7 @@ export async function runCopilotTool(name: string, input: Record<string, unknown
     case "get_scalper_snapshot": return toolScalperSnapshot();
     case "get_track_record_stats": return toolTrackRecordStats(input);
     case "get_news_headlines": return toolNewsHeadlines(input);
+    case "get_econ_calendar": return toolEconCalendar(input);
     case "get_portfolio_snapshot": return toolPortfolioSnapshot();
     default: throw new Error(`Unknown tool "${name}"`);
   }
