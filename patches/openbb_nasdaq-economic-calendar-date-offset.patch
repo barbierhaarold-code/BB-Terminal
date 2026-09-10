@@ -1,0 +1,92 @@
+--- a/openbb_nasdaq/models/economic_calendar.py
++++ b/openbb_nasdaq/models/economic_calendar.py
+@@ -14,6 +14,33 @@
+ from pydantic import Field, field_validator
+ 
+ 
++def _corrected_datetime(bucket_date: str, gmt: str) -> str:
++    """BB-Terminal patch — correct Nasdaq's uniform one-day-late filing.
++
++    Nasdaq's ``economicevents?date=D`` endpoint returns every event (all
++    countries) under ``D = its real release date + 1 calendar day``. Confirmed
++    feed-wide: ~25 US indicators plus non-US anchors that cannot legitimately
++    move (Canada Labour Day, Brazil Independence Day, Bank of Russia decision,
++    CFTC COT, UK ONS monthly GDP, ECB decision), across two weeks including a
++    non-holiday week, with zero exceptions.
++
++    Shift the bucket date back one day and re-attach the clock time (already
++    US Eastern in Nasdaq's payload despite the ``gmt`` key), mirroring
++    upstream's All Day / Tentative / 24H handling.
++    """
++    # pylint: disable=import-outside-toplevel
++    from datetime import datetime, timedelta
++
++    real = (
++        datetime.strptime(bucket_date, "%Y-%m-%d") - timedelta(days=1)
++    ).strftime("%Y-%m-%d")
++    if gmt == "All Day":
++        return f"{real} 00:00"
++    return (
++        f"{real} {gmt}".replace("Tentative", "00:00").replace("24H", "00:00")
++    )
++
++
+ class NasdaqEconomicCalendarQueryParams(EconomicCalendarQueryParams):
+     """Nasdaq Economic Calendar Query.
+ 
+@@ -123,15 +150,23 @@
+         """Return the raw data from the Nasdaq endpoint."""
+         # pylint: disable=import-outside-toplevel
+         import asyncio  # noqa
++        from datetime import timedelta  # noqa
+         from openbb_core.provider.utils.helpers import amake_request
+         from openbb_nasdaq.utils.helpers import get_headers, date_range
+ 
+         IPO_HEADERS = get_headers(accept_type="json")
+         data: list[dict] = []
++        # BB-Terminal patch: Nasdaq files every event one day late (see
++        # _corrected_datetime). Fetch one extra trailing day and stop skipping
++        # weekend buckets — the real final day's events (a Friday NFP or CPI)
++        # land in Nasdaq's next-day bucket, frequently a Saturday. Every row's
++        # date is shifted back a day below, then the result is clamped to the
++        # originally requested [start_date, end_date] window.
+         dates = [
+             date.strftime("%Y-%m-%d")
+-            for date in date_range(query.start_date, query.end_date)
+-            if date.weekday() < 5  # Exclude weekends
++            for date in date_range(
++                query.start_date, query.end_date + timedelta(days=1)
++            )
+         ]
+ 
+         async def get_calendar_data(date: str):
+@@ -158,13 +193,8 @@
+                 response = [
+                     {
+                         **{k: v for k, v in item.items() if k != "gmt"},
+-                        "date": (
+-                            f"{date} 00:00"
+-                            if item.get("gmt") == "All Day"
+-                            else f"{date} {item.get('gmt', '')}".replace(
+-                                "Tentative", "00:00"
+-                            ).replace("24H", "00:00")
+-                        ),
++                        # BB-Terminal patch: -1 day, Nasdaq files events late.
++                        "date": _corrected_datetime(date, item.get("gmt", "")),
+                     }
+                     for item in response
+                 ]
+@@ -177,6 +207,13 @@
+                 "There was an error with the request and it was returned empty."
+             )
+ 
++        # BB-Terminal patch: drop the spill from the extra trailing day and
++        # from any shifted-back boundary event, so callers still get exactly
++        # the [start_date, end_date] window they asked for.
++        start_s = query.start_date.strftime("%Y-%m-%d")
++        end_s = query.end_date.strftime("%Y-%m-%d")
++        data = [d for d in data if start_s <= d["date"][:10] <= end_s]
++
+         if query.country:
+             country = (
+                 query.country.split(",") if "," in query.country else query.country
