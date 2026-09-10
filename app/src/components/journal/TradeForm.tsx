@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useJournal } from "@/store/journalStore";
+import { useTradeDraft } from "@/store/tradeDraftStore";
 import { naiveResult, MACRO_BIAS_OPTIONS, CONVICTION_OPTIONS, type Direction } from "@/lib/journal";
 import { cn } from "@/lib/cn";
 
@@ -33,6 +34,39 @@ export function TradeForm() {
   const [feeling, setFeeling] = useState("");
   const [notes, setNotes] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
+  const [prefillFlash, setPrefillFlash] = useState(false);
+
+  // Consume a Copilot-supplied draft (prefill_track_record_entry). This only
+  // seeds the same local state a human typing would set — nothing is saved
+  // until the user clicks Log Trade. Keyed on `nonce` so re-prefilling works,
+  // and cleared immediately after so it can't linger or re-apply.
+  const { draft: pendingDraft, nonce: draftNonce, clear: clearDraft } = useTradeDraft();
+  const appliedNonce = useRef(0);
+  useEffect(() => {
+    if (draftNonce === appliedNonce.current || !pendingDraft) return;
+    appliedNonce.current = draftNonce;
+    const d = pendingDraft;
+    if (d.symbol != null) setSymbol(d.symbol);
+    if (d.direction === "buy" || d.direction === "sell") setDirection(d.direction);
+    if (d.size != null) setSize(d.size);
+    if (d.entryPrice != null) setEntryPrice(d.entryPrice);
+    if (d.exitPrice != null) setExitPrice(d.exitPrice);
+    if (d.entryAt) setEntryAt(d.entryAt);
+    if (d.exitAt != null) setExitAt(d.exitAt);
+    if (d.macroBias && MACRO_BIAS_OPTIONS.includes(d.macroBias)) setMacroBias(d.macroBias);
+    if (d.conviction && CONVICTION_OPTIONS.includes(d.conviction)) setConviction(d.conviction);
+    if (d.newsEvent != null) setNewsEvent(d.newsEvent);
+    if (d.feeling != null) setFeeling(d.feeling);
+    if (d.notes != null) setNotes(d.notes);
+    setResultTouched(false); // let the auto result recompute from the new prices
+    if (d.setupName && d.setupName.trim()) {
+      const s = addSetup(d.setupName.trim());
+      setSetupId(s.id);
+    }
+    clearDraft();
+    setPrefillFlash(true);
+    setTimeout(() => setPrefillFlash(false), 4000);
+  }, [draftNonce, pendingDraft, addSetup, clearDraft]);
 
   const autoResult = useMemo(() => {
     if (!entryPrice.trim() || !exitPrice.trim() || !size.trim()) return undefined;
@@ -215,6 +249,9 @@ export function TradeForm() {
             Log Trade
           </button>
           {savedFlash && <span className="text-term-green text-[11px] uppercase tracking-wider">✓ saved</span>}
+          {prefillFlash && !savedFlash && (
+            <span className="text-term-amber text-[11px] uppercase tracking-wider">Pre-filled by copilot · review &amp; save</span>
+          )}
         </div>
       </div>
     </div>

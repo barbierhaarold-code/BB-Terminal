@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchEconCalendar } from "@/lib/api";
 import { estimateImpact, surprise, type Impact } from "@/lib/econCalendar";
-import { addWeeks, weekLabel, weekRange } from "@/lib/weekview";
+import { addWeeks, toYmd, weekLabel, weekRange } from "@/lib/weekview";
 import { cn } from "@/lib/cn";
 import { WeekNav, type DayCount } from "./WeekNav";
 
@@ -15,7 +15,32 @@ export function EconCalendarPanel() {
   const [country, setCountry] = useState("all");
   const [impact, setImpact] = useState<Impact | "all">("all");
 
-  const week = useMemo(() => weekRange(addWeeks(new Date(), weekOffset)), [weekOffset]);
+  // The "current" day is captured here rather than read inline in the memo
+  // below, so a terminal left open across midnight (or for days) doesn't keep
+  // anchoring the default view on the day it was first opened. It re-checks the
+  // wall clock whenever the tab/window regains focus and on a slow interval;
+  // `todayYmd` only changes when the calendar date actually rolls over, so this
+  // doesn't churn renders while the terminal sits in the foreground.
+  const [todayYmd, setTodayYmd] = useState(() => toYmd(new Date()));
+  useEffect(() => {
+    const sync = () => setTodayYmd((prev) => {
+      const now = toYmd(new Date());
+      return now === prev ? prev : now;
+    });
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", sync);
+    const t = setInterval(sync, 60_000);
+    return () => {
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", sync);
+      clearInterval(t);
+    };
+  }, []);
+
+  const week = useMemo(
+    () => weekRange(addWeeks(new Date(`${todayYmd}T12:00:00`), weekOffset)),
+    [todayYmd, weekOffset]
+  );
 
   const { data = [], isLoading, error } = useQuery({
     queryKey: ["newshub-econ-calendar", week.monday, week.friday],

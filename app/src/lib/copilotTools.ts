@@ -12,15 +12,18 @@ import {
   type Quote, type Profile, type Candle,
 } from "@/lib/api";
 import { SESSIONS, sessionStatus, overlaps, DXY, intradayStats } from "@/lib/forex";
-import { computeStats } from "@/lib/journal";
+import { computeStats, MACRO_BIAS_OPTIONS, CONVICTION_OPTIONS, type Direction } from "@/lib/journal";
 import { useJournal } from "@/store/journalStore";
+import { useWorkspace } from "@/store/workspaceStore";
+import { useTradeDraft, type TradeDraft } from "@/store/tradeDraftStore";
+import { FUNCTIONS } from "@/lib/functions";
 import {
   computePositionMetrics, computeBookTotals, sectorAllocation,
   buildEquityCurve, indexToCostBasis, riskStats, type SeriesPoint,
 } from "@/lib/portfolio";
 import { usePortfolio } from "@/store/portfolioStore";
 import { estimateImpact } from "@/lib/econCalendar";
-import { weekRange, addWeeks } from "@/lib/weekview";
+import { toYmd } from "@/lib/weekview";
 import type { AnthropicTool } from "@/lib/copilotClient";
 
 export const COPILOT_TOOLS: AnthropicTool[] = [
@@ -41,7 +44,7 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
   },
   {
     name: "get_news_headlines",
-    description: "Recent market/forex news headlines and upcoming economic calendar events (with an estimated impact rating). Use for any question about recent news or what's on the economic calendar.",
+    description: "Recent market/forex news headlines. Use for any question about recent news. For the economic calendar / upcoming data releases, use get_econ_calendar instead.",
     input_schema: {
       type: "object",
       properties: {
@@ -50,9 +53,53 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
     },
   },
   {
+    name: "get_econ_calendar",
+    description: "Upcoming economic calendar events (data releases, central-bank events, auctions) from now forward. Defaults to a 7-day window to match the Econ Calendar module's week view. Each event carries an ESTIMATED impact rating (high/medium/low) derived from a keyword + economy-size heuristic — Nasdaq's free calendar ships no licensed impact rating, so always relay it as an estimate, never as a definitive call. Use for any question about what's on the calendar or the next high-impact event.",
+    input_schema: {
+      type: "object",
+      properties: {
+        daysAhead: { type: "integer", description: "How many days forward to look from today (default 7, min 1, max 30)." },
+      },
+    },
+  },
+  {
     name: "get_portfolio_snapshot",
     description: "Current open positions, per-name and sector allocation, book totals (market value, day/total P&L), performance vs the S&P 500 (SPY) since the earliest position, and risk stats (Sharpe, annualized volatility, max drawdown, win rate). Use for any question about portfolio holdings or performance.",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "navigate_to_function",
+    description: "Open a terminal module by its function code — exactly like typing the code in the command bar. Pure UI navigation, changes no data. Use when Harold asks to go to / open / show a screen (e.g. 'open the scalper', 'take me to Track Record'). Common codes: CC (Command Center), FXC (Forex Center), TRACK (Track Record), NH (News Hub), CRYPTO, QUANT, PORTFOLIO, HEAT (heatmap), GP/KEY/FA/RESEARCH (need a symbol). An unknown code is returned as an error for you to relay honestly.",
+    input_schema: {
+      type: "object",
+      properties: {
+        functionCode: { type: "string", description: "The function code, e.g. \"FXC\" or \"TRACK\"." },
+        symbol: { type: "string", description: "Ticker, only for symbol-scoped functions like GP/KEY/FA/RESEARCH (e.g. \"AAPL\")." },
+      },
+      required: ["functionCode"],
+    },
+  },
+  {
+    name: "prefill_track_record_entry",
+    description: "Open Track Record and PRE-FILL (never submit) its manual 'Log a Trade' form with trade details Harold described in chat. Nothing is saved — Harold reviews the form and clicks Log Trade himself. Before calling this, tell him in plain language exactly what you're about to pre-fill (direction, symbol, entry, exit, size, tags). Only pass fields you parsed with confidence; omit anything uncertain (it stays blank). Symbol defaults to XAU/USD if he didn't name one.",
+    input_schema: {
+      type: "object",
+      properties: {
+        direction: { type: "string", enum: ["buy", "sell"], description: "buy = long / achat, sell = short / vente." },
+        symbol: { type: "string", description: "Instrument, e.g. \"XAU/USD\" (default), \"EUR/USD\", \"AAPL\"." },
+        entryPrice: { type: "number", description: "Entry price." },
+        exitPrice: { type: "number", description: "Exit price." },
+        size: { type: "number", description: "Position size in lots." },
+        entryAt: { type: "string", description: "Entry date-time, ISO 8601 or \"YYYY-MM-DDTHH:mm\". Omit to leave the form's default (now)." },
+        exitAt: { type: "string", description: "Exit date-time, same formats. Optional." },
+        setup: { type: "string", description: "Setup / strategy tag (free text — created if it doesn't exist yet)." },
+        macroBias: { type: "string", enum: MACRO_BIAS_OPTIONS, description: "Macro bias of the day, if stated." },
+        conviction: { type: "string", enum: CONVICTION_OPTIONS, description: "Conviction level, if stated." },
+        newsEvent: { type: "string", description: "Linked news / macro event, if mentioned." },
+        feeling: { type: "string", description: "How the trade felt (confiant, FOMO, revenge trade, patient…), if mentioned." },
+        notes: { type: "string", description: "Free-text execution / management notes, if mentioned." },
+      },
+    },
   },
 ];
 
@@ -144,25 +191,59 @@ async function toolNewsHeadlines(input: { limit?: number }) {
     .slice(0, limit)
     .map((n) => ({ title: n.title, date: n.date, source: n.source, url: n.url }));
 
+  return { headlines };
+}
+
+// ────────────────────────────────────────────────────────────
+// get_econ_calendar
+// ────────────────────────────────────────────────────────────
+// Split out of get_news_headlines: that only ever looked at the current
+// Mon–Fri (plus next week, and only if this week had <5 events left), so on a
+// busy midweek the copilot couldn't see Friday, let alone the following week.
+// This pulls a real N-day window (default 7, matching the Econ Calendar
+// module's week view) in a single /economy/calendar call — the same fetcher
+// and the same estimateImpact() the UI panel uses, no reimplementation.
+async function toolEconCalendar(input: { daysAhead?: number }) {
+  const daysAhead = Math.min(Math.max(Math.trunc(input.daysAhead ?? 7), 1), 30);
   const now = new Date();
-  const thisWeek = weekRange(now);
-  let events = await fetchEconCalendar(thisWeek.monday, thisWeek.friday).catch(() => []);
-  let upcoming = events.filter((e) => new Date(e.date) >= now);
-  if (upcoming.length < 5) {
-    const nextWeek = weekRange(addWeeks(now, 1));
-    const more = await fetchEconCalendar(nextWeek.monday, nextWeek.friday).catch(() => []);
-    upcoming = [...upcoming, ...more];
-  }
-  const upcomingEvents = upcoming
-    .sort((a, b) => (a.date < b.date ? -1 : 1))
-    .slice(0, 15)
+  const end = new Date(now);
+  end.setDate(end.getDate() + daysAhead);
+
+  const events = await fetchEconCalendar(toYmd(now), toYmd(end))
+    .catch((e: Error) => ({ available: false as const, reason: e.message }));
+  if (!Array.isArray(events)) return events;
+
+  const upcoming = events
+    .filter((e) => new Date(e.date) >= now)
     .map((e) => ({
       date: e.date, country: e.country, event: e.event,
       consensus: e.consensus, previous: e.previous,
       impact: estimateImpact(e),
-    }));
+    }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
 
-  return { headlines, upcomingEvents };
+  // A 7-day nasdaq window is 300+ rows, mostly low-impact auctions/energy
+  // stats. Keep every high/medium event no matter how far out, then top up
+  // with the soonest low-impact ones to a bounded total — so "the next
+  // high-impact release" is never the thing that gets truncated away.
+  const CAP = 120;
+  const notable = upcoming.filter((e) => e.impact !== "low");
+  const low = upcoming.filter((e) => e.impact === "low");
+  const shown = [...notable, ...low.slice(0, Math.max(0, CAP - notable.length))]
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  return {
+    rangeStart: toYmd(now),
+    rangeEnd: toYmd(end),
+    daysAhead,
+    impactNote:
+      "The impact field is an ESTIMATE (keyword + economy-size heuristic) — " +
+      "Nasdaq's free calendar ships no licensed impact rating. Relay it as an " +
+      "estimate, never as a definitive high/low call.",
+    counts: { total: upcoming.length, notable: notable.length, returned: shown.length },
+    lowImpactTruncated: low.length > Math.max(0, CAP - notable.length),
+    events: shown,
+  };
 }
 
 // ────────────────────────────────────────────────────────────
@@ -229,6 +310,120 @@ async function toolPortfolioSnapshot() {
 }
 
 // ────────────────────────────────────────────────────────────
+// navigate_to_function  (UI only — no data touched)
+// ────────────────────────────────────────────────────────────
+// Routes through the same workspaceStore.openTab the command bar's run()
+// calls — not a second routing path. Validates the code against the same
+// FUNCTIONS directory HELP lists.
+function toolNavigate(input: { functionCode?: unknown; symbol?: unknown }) {
+  const code = String(input.functionCode ?? "").trim().toUpperCase();
+  if (!code) return { navigated: false, error: "No function code given." };
+  const def = FUNCTIONS.find((f) => f.code === code);
+  if (!def) {
+    return {
+      navigated: false,
+      error: `No function with code "${code}". It isn't in the HELP directory — tell Harold it wasn't found.`,
+    };
+  }
+  const symbol = String(input.symbol ?? "").trim().toUpperCase() || undefined;
+  if (def.needsSymbol && !symbol) {
+    return {
+      navigated: false,
+      error: `${code} (${def.name}) needs a symbol — ask Harold which ticker, then call again with { functionCode: "${code}", symbol: "…" }.`,
+    };
+  }
+  useWorkspace.getState().openTab(def.code, def.needsSymbol ? symbol : undefined);
+  return { navigated: true, functionCode: def.code, name: def.name, symbol: def.needsSymbol ? symbol ?? null : null };
+}
+
+// ────────────────────────────────────────────────────────────
+// prefill_track_record_entry  (UI only — fills the form, never saves)
+// ────────────────────────────────────────────────────────────
+// Drops the parsed fields into tradeDraftStore and navigates to TRACK. The
+// TradeForm component seeds its own local state from that draft; the trade is
+// only ever written by Harold clicking "Log Trade" (the form's existing
+// addTrade path). Nothing here writes to useJournal or localStorage.
+function toNum(v: unknown): number | undefined {
+  if (v == null || v === "") return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** ISO 8601 or "YYYY-MM-DDTHH:mm" -> datetime-local value, or undefined. */
+function toDatetimeLocal(v: unknown): string | undefined {
+  if (typeof v !== "string" || !v.trim()) return undefined;
+  const d = new Date(v.trim());
+  if (Number.isNaN(d.getTime())) return undefined;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function pickOption(v: unknown, options: string[]): string | undefined {
+  if (typeof v !== "string" || !v.trim()) return undefined;
+  return options.find((o) => o.toLowerCase() === v.trim().toLowerCase());
+}
+
+function toolPrefillTrackRecord(input: Record<string, unknown>) {
+  const dirRaw = String(input.direction ?? "").trim().toLowerCase();
+  const direction: Direction | undefined =
+    dirRaw === "buy" || dirRaw === "long" || dirRaw === "achat" ? "buy"
+    : dirRaw === "sell" || dirRaw === "short" || dirRaw === "vente" ? "sell"
+    : undefined;
+
+  const entry = toNum(input.entryPrice);
+  const exit = toNum(input.exitPrice);
+  const size = toNum(input.size);
+  const symbolRaw = typeof input.symbol === "string" && input.symbol.trim() ? input.symbol.trim().toUpperCase() : undefined;
+  const symbol = symbolRaw ?? "XAU/USD";
+
+  const draft: TradeDraft = {
+    symbol,
+    direction,
+    size: size != null ? String(size) : undefined,
+    entryPrice: entry != null ? String(entry) : undefined,
+    exitPrice: exit != null ? String(exit) : undefined,
+    entryAt: toDatetimeLocal(input.entryAt),
+    exitAt: toDatetimeLocal(input.exitAt),
+    setupName: typeof input.setup === "string" && input.setup.trim() ? input.setup.trim() : undefined,
+    macroBias: pickOption(input.macroBias, MACRO_BIAS_OPTIONS),
+    conviction: pickOption(input.conviction, CONVICTION_OPTIONS),
+    newsEvent: typeof input.newsEvent === "string" && input.newsEvent.trim() ? input.newsEvent.trim() : undefined,
+    feeling: typeof input.feeling === "string" && input.feeling.trim() ? input.feeling.trim() : undefined,
+    notes: typeof input.notes === "string" && input.notes.trim() ? input.notes.trim() : undefined,
+  };
+
+  useTradeDraft.getState().setDraft(draft);
+  useWorkspace.getState().openTab("TRACK");
+
+  const prefilled = Object.entries({
+    symbol: draft.symbol,
+    direction: draft.direction,
+    size: draft.size,
+    entryPrice: draft.entryPrice,
+    exitPrice: draft.exitPrice,
+    entryAt: draft.entryAt,
+    exitAt: draft.exitAt,
+    setup: draft.setupName,
+    macroBias: draft.macroBias,
+    conviction: draft.conviction,
+    newsEvent: draft.newsEvent,
+    feeling: draft.feeling,
+    notes: draft.notes,
+  }).filter(([, v]) => v != null).map(([k]) => k);
+
+  const left = ["direction", "size", "entryPrice", "exitPrice"].filter((k) => !prefilled.includes(k));
+
+  return {
+    prefilled: true,
+    saved: false,
+    note: "The 'Log a Trade' form is now pre-filled but NOT submitted. Tell Harold exactly what you pre-filled and that he must review and click Log Trade to save it — do not say the trade is logged/saved.",
+    fieldsPrefilled: prefilled,
+    fieldsLeftBlank: left,
+    draft,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
 // Dispatcher
 // ────────────────────────────────────────────────────────────
 export async function runCopilotTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -236,7 +431,10 @@ export async function runCopilotTool(name: string, input: Record<string, unknown
     case "get_scalper_snapshot": return toolScalperSnapshot();
     case "get_track_record_stats": return toolTrackRecordStats(input);
     case "get_news_headlines": return toolNewsHeadlines(input);
+    case "get_econ_calendar": return toolEconCalendar(input);
     case "get_portfolio_snapshot": return toolPortfolioSnapshot();
+    case "navigate_to_function": return toolNavigate(input);
+    case "prefill_track_record_entry": return toolPrefillTrackRecord(input);
     default: throw new Error(`Unknown tool "${name}"`);
   }
 }
