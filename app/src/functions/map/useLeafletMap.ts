@@ -60,6 +60,12 @@ export function useLeafletMap(containerRef: RefObject<HTMLDivElement>) {
       worldCopyJump: true,
       zoomControl: false,
       attributionControl: true,
+      // Fires/ports layers can put thousands of circle markers on screen at
+      // once (VIIRS NRT during fire season, or the full ports dataset) —
+      // SVG (Leaflet's default renderer) creates one DOM node per marker and
+      // visibly lags past a few thousand; canvas draws them all to one
+      // <canvas> element instead.
+      preferCanvas: true,
     });
     L.control.zoom({ position: "bottomright" }).addTo(instance);
     L.tileLayer(DARK_TILE_URL, {
