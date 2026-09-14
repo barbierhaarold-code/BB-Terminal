@@ -795,6 +795,162 @@ function copilotProxyPlugin(apiKey: string | undefined): Plugin {
   };
 }
 
+// ────────────────────────────────────────────────────────────
+// NASA FIRMS proxy (MAP > Active Fires layer) — VIIRS near-real-time fire
+// detections. FIRMS requires a personal MAP_KEY (free NASA Earthdata
+// account, no cost, no card) tied to the requester, so it's proxied
+// server-side for the same reason as the Twelve Data/GetXAPI keys: it must
+// never reach the client bundle. FIRMS's own NRT data itself only refreshes
+// a few times a day; a 10-minute cache is a safety net against re-fetching
+// on every layer toggle/remount, nowhere near FIRMS's stated 5,000
+// transactions/10-minute limit.
+const FIRMS_TTL_MS = 10 * 60_000;
+
+function firmsProxyPlugin(apiKey: string | undefined): Plugin {
+  let cache: { body: string; expires: number } | null = null;
+
+  async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
+    if (req.url !== "/firms-proxy/fires" || req.method !== "GET") { next(); return; }
+
+    if (!apiKey) {
+      res.statusCode = 503;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ warnings: [{ message: "FIRMS_MAP_KEY not configured — add it to app/.env and restart the dev server." }] }));
+      return;
+    }
+
+    const now = Date.now();
+    if (cache && cache.expires > now) {
+      res.setHeader("content-type", "text/csv");
+      res.setHeader("x-bbterminal-cache", "HIT");
+      res.end(cache.body);
+      return;
+    }
+
+    try {
+      const upstream = await fetch(`https://firms.modaps.eosdis.nasa.gov/api/area/csv/${apiKey}/VIIRS_SNPP_NRT/world/1`);
+      const text = await upstream.text();
+      // FIRMS returns HTTP 200 with a plain-text error body ("Invalid
+      // MAP_KEY", "No data found for...") rather than a real error status —
+      // verified directly. A CSV body always starts with the header row.
+      if (!upstream.ok || !text.trim().toLowerCase().startsWith("latitude")) {
+        throw new Error(text.trim() || `FIRMS API error (${upstream.status})`);
+      }
+      cache = { body: text, expires: now + FIRMS_TTL_MS };
+      res.setHeader("content-type", "text/csv");
+      res.setHeader("x-bbterminal-cache", "MISS");
+      res.end(text);
+    } catch (err) {
+      res.statusCode = 502;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ warnings: [{ message: String((err as Error)?.message ?? err) }] }));
+    }
+  }
+
+  return {
+    name: "bbterminal-firms-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(handle);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle);
+    },
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// NGA World Port Index proxy (MAP > Ports layer) — msi.nga.mil's API
+// returns a flat 403 to any request carrying a browser `Origin` header
+// (verified directly: the identical request with no Origin header succeeds,
+// one with any Origin value fails), so it can't be fetched client-side at
+// all — this isn't a caching optimization like the other proxies, it's the
+// only way to reach the data. The full ~2,950-port dataset is public domain
+// (NGA Pub. 150) and essentially static (updated on NGA's own schedule, not
+// real-time), so it's fetched and parsed once per dev-server run and served
+// from memory after that; a manual server restart is how a stale copy gets
+// refreshed, same tradeoff as the COT/Congress proxies above.
+const WPI_URL = "https://msi.nga.mil/api/publications/world-port-index?output=json";
+
+interface WpiRawPort {
+  portNumber: number;
+  portName: string;
+  countryName: string;
+  latitude: string;
+  longitude: string;
+  harborSize: string | null;
+  firstPortOfEntry: string | null;
+}
+
+const HARBOR_SIZE_NAME: Record<string, "Large" | "Medium" | "Small" | "Very Small"> = {
+  L: "Large", M: "Medium", S: "Small", V: "Very Small",
+};
+
+/** Parses NGA's "30°20'00"N" / "48°17'00"E" degree-minute-second strings into signed decimal degrees. */
+function parseDms(dms: string): number | null {
+  const m = dms.match(/(\d+)[°]\s*(\d+)['′]\s*(\d+(?:\.\d+)?)[\"″]?\s*([NSEW])/i);
+  if (!m) return null;
+  const [, deg, min, sec, hemi] = m;
+  const value = Number(deg) + Number(min) / 60 + Number(sec) / 3600;
+  return hemi.toUpperCase() === "S" || hemi.toUpperCase() === "W" ? -value : value;
+}
+
+function wpiProxyPlugin(): Plugin {
+  let allPorts: { portNumber: number; name: string; country: string; lat: number; lon: number; harborSize: string; firstPortOfEntry: boolean }[] | null = null;
+  let inflight: Promise<typeof allPorts> | null = null;
+
+  async function loadPorts() {
+    const upstream = await fetch(WPI_URL);
+    if (!upstream.ok) throw new Error(`World Port Index API error (${upstream.status})`);
+    const json: { ports: WpiRawPort[] } = await upstream.json();
+    return json.ports
+      .map((p) => {
+        const lat = parseDms(p.latitude);
+        const lon = parseDms(p.longitude);
+        if (lat == null || lon == null) return null;
+        return {
+          portNumber: p.portNumber,
+          name: p.portName,
+          country: p.countryName,
+          lat,
+          lon,
+          harborSize: HARBOR_SIZE_NAME[p.harborSize ?? ""] ?? "Unknown",
+          firstPortOfEntry: p.firstPortOfEntry === "Y",
+        };
+      })
+      .filter((p): p is NonNullable<typeof p> => p != null);
+  }
+
+  async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
+    if (!req.url?.startsWith("/wpi-proxy/ports") || req.method !== "GET") { next(); return; }
+
+    res.setHeader("content-type", "application/json");
+    try {
+      if (!allPorts) {
+        inflight ??= loadPorts().finally(() => { inflight = null; });
+        allPorts = await inflight;
+      }
+      const url = new URL(req.url, "http://internal");
+      const size = url.searchParams.get("size") === "M" ? "M" : "L";
+      const wanted = size === "M" ? new Set(["Large", "Medium"]) : new Set(["Large"]);
+      const results = allPorts!.filter((p) => wanted.has(p.harborSize));
+      res.end(JSON.stringify({ results }));
+    } catch (err) {
+      res.statusCode = 502;
+      res.end(JSON.stringify({ results: [], warnings: [{ message: String((err as Error)?.message ?? err) }] }));
+    }
+  }
+
+  return {
+    name: "bbterminal-wpi-proxy",
+    configureServer(server: ViteDevServer) {
+      server.middlewares.use(handle);
+    },
+    configurePreviewServer(server) {
+      server.middlewares.use(handle);
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname), "");
   return {
@@ -808,6 +964,8 @@ export default defineConfig(({ mode }) => {
       predictionMarketsProxyPlugin(),
       congressProxyPlugin(),
       copilotProxyPlugin(env.ANTHROPIC_API_KEY),
+      firmsProxyPlugin(env.FIRMS_MAP_KEY),
+      wpiProxyPlugin(),
     ],
     resolve: {
       alias: { "@": path.resolve(__dirname, "src") },
