@@ -4,13 +4,13 @@ export type FunctionCode =
   | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
-  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "PORTFOLIO" | "COPILOT";
+  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "PORTFOLIO" | "COPILOT" | "MAP";
 
 export interface FunctionDef {
   code: FunctionCode;
   name: string;
   needsSymbol: boolean;
-  group: "Security" | "Markets" | "Macro" | "System" | "Journal";
+  group: "Security" | "Markets" | "Macro" | "System" | "Journal" | "Map";
   summary: string;
 }
 
@@ -45,6 +45,8 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "QUANT", name: "Analytics / Quant",   needsSymbol: false, group: "Markets", summary: "Correlation matrix, cointegration/z-score pairs trading, beta & hedge ratio, sector rotation, COT positioning" },
 
   { code: "CURV", name: "US Yield Curve",        needsSymbol: false, group: "Macro", summary: "Treasury par yield curve" },
+
+  { code: "MAP",  name: "World Map",             needsSymbol: false, group: "Map", summary: "Dark world map — day/night terminator, live USGS earthquakes" },
 
   { code: "TRACK", name: "Track Record",         needsSymbol: false, group: "Journal", summary: "Trading journal — manual log, bulk import, setups, performance stats" },
   { code: "PORTFOLIO", name: "Portfolio Tracker", needsSymbol: false, group: "Journal", summary: "Open positions, live P&L, sector allocation, performance vs S&P 500, risk stats, watchlist news" },
