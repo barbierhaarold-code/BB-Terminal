@@ -17,6 +17,9 @@
 }
 .leaflet-popup-content {
   margin: 10px 12px;
+  max-width: 300px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .leaflet-popup-tip-container {
   display: none;
@@ -34,6 +37,10 @@
   border: 1px solid #2a2a2a;
   border-radius: 0;
   box-shadow: 0 6px 20px -10px rgba(0, 0, 0, 0.8);
+  max-width: 300px;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
 }
 .leaflet-tooltip-top:before {
   border-top-color: #2a2a2a;

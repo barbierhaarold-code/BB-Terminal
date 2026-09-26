@@ -1,0 +1,281 @@
+// Known military installations — a static, curated list of publicly
+// documented major military bases worldwide. Sourced from public records:
+// each installation's location and operating country is ordinary public
+// knowledge (OSINT), widely reported in defense press and government
+// publications. This is explicitly NOT live tracking of movements,
+// flights, or activity.
+//
+// Sources: US DoD Base Structure Report (publicly released annually);
+// national MoD publications; openly documented allied/partner installations.
+
+export interface MilitaryBase {
+  id: string;
+  name: string;
+  country: string;
+  operator: string;
+  lat: number;
+  lon: number;
+  type: string;
+  description: string;
+}
+
+export const MILITARY_BASES: MilitaryBase[] = [
+  // --- United States ---
+  {
+    id: "norfolk",
+    name: "Naval Station Norfolk",
+    country: "United States",
+    operator: "US Navy",
+    lat: 36.9461,
+    lon: -76.3013,
+    type: "Naval Base",
+    description: "World's largest naval station — home port for the US Atlantic Fleet and multiple carrier strike groups.",
+  },
+  {
+    id: "diego-garcia",
+    name: "Naval Support Facility Diego Garcia",
+    country: "British Indian Ocean Territory",
+    operator: "US Navy / UK",
+    lat: -7.3133,
+    lon: 72.4111,
+    type: "Naval/Air Base",
+    description: "Strategic mid-Indian Ocean base supporting long-range bomber and maritime patrol operations.",
+  },
+  {
+    id: "ramstein",
+    name: "Ramstein Air Base",
+    country: "Germany",
+    operator: "US Air Force",
+    lat: 49.4369,
+    lon: 7.6003,
+    type: "Air Base",
+    description: "Headquarters of US Air Forces in Europe and NATO Allied Air Command.",
+  },
+  {
+    id: "camp-humphreys",
+    name: "Camp Humphreys",
+    country: "South Korea",
+    operator: "US Army",
+    lat: 36.9627,
+    lon: 127.0312,
+    type: "Army Base",
+    description: "Largest US overseas military base — headquarters of US Forces Korea (USFK).",
+  },
+  {
+    id: "yokosuka",
+    name: "US Fleet Activities Yokosuka",
+    country: "Japan",
+    operator: "US Navy",
+    lat: 35.2835,
+    lon: 139.6681,
+    type: "Naval Base",
+    description: "Home port of the US 7th Fleet — the only forward-deployed carrier strike group.",
+  },
+  {
+    id: "incirlik",
+    name: "Incirlik Air Base",
+    country: "Turkey",
+    operator: "US Air Force / Turkish Air Force",
+    lat: 37.0021,
+    lon: 35.4259,
+    type: "Air Base",
+    description: "Strategic NATO air base in southern Turkey supporting Middle East operations.",
+  },
+  {
+    id: "al-udeid",
+    name: "Al Udeid Air Base",
+    country: "Qatar",
+    operator: "US Air Force / Qatar Air Force",
+    lat: 25.1174,
+    lon: 51.3150,
+    type: "Air Base",
+    description: "Largest US air base in the Middle East — hosts CENTCOM's forward headquarters.",
+  },
+  {
+    id: "guam-andersen",
+    name: "Andersen Air Force Base",
+    country: "Guam (US Territory)",
+    operator: "US Air Force",
+    lat: 13.5840,
+    lon: 144.9245,
+    type: "Air Base",
+    description: "Key Pacific power projection base for strategic bombers and tanker aircraft.",
+  },
+  {
+    id: "pearl-harbor",
+    name: "Joint Base Pearl Harbor-Hickam",
+    country: "United States",
+    operator: "US Navy / US Air Force",
+    lat: 21.3469,
+    lon: -157.9741,
+    type: "Naval/Air Base",
+    description: "Headquarters of US Indo-Pacific Command (INDOPACOM) and the Pacific Fleet.",
+  },
+  {
+    id: "fort-liberty",
+    name: "Fort Liberty (formerly Fort Bragg)",
+    country: "United States",
+    operator: "US Army",
+    lat: 35.1390,
+    lon: -79.0064,
+    type: "Army Base",
+    description: "Home of the XVIII Airborne Corps, 82nd Airborne Division, and US Army Special Operations Command.",
+  },
+  // --- Russia ---
+  {
+    id: "severomorsk",
+    name: "Severomorsk Naval Base",
+    country: "Russia",
+    operator: "Russian Navy",
+    lat: 69.0731,
+    lon: 33.4192,
+    type: "Naval Base",
+    description: "Headquarters of Russia's Northern Fleet — home to its ballistic missile submarines and carrier.",
+  },
+  {
+    id: "kaliningrad",
+    name: "Kaliningrad / Baltiysk Naval Base",
+    country: "Russia (Kaliningrad exclave)",
+    operator: "Russian Navy",
+    lat: 54.6533,
+    lon: 19.8931,
+    type: "Naval Base",
+    description: "Headquarters of the Russian Baltic Fleet — strategically positioned between NATO allies Poland and Lithuania.",
+  },
+  {
+    id: "khmeimim",
+    name: "Khmeimim Air Base",
+    country: "Syria",
+    operator: "Russian Aerospace Forces",
+    lat: 35.4011,
+    lon: 35.9487,
+    type: "Air Base",
+    description: "Russia's primary air base in the Eastern Mediterranean, operational since 2015.",
+  },
+  {
+    id: "vladivostok",
+    name: "Vladivostok / Pacific Fleet HQ",
+    country: "Russia",
+    operator: "Russian Navy",
+    lat: 43.1150,
+    lon: 131.9000,
+    type: "Naval Base",
+    description: "Headquarters of Russia's Pacific Fleet.",
+  },
+  // --- China ---
+  {
+    id: "yulin",
+    name: "Yulin Naval Base",
+    country: "China",
+    operator: "PLA Navy",
+    lat: 18.2269,
+    lon: 109.5311,
+    type: "Naval Base",
+    description: "Major PLAN submarine base on Hainan Island — underground pens for nuclear-powered submarines.",
+  },
+  {
+    id: "djibouti-china",
+    name: "PLA Support Base Djibouti",
+    country: "Djibouti",
+    operator: "PLA",
+    lat: 11.5894,
+    lon: 43.1456,
+    type: "Naval/Logistics Base",
+    description: "China's first overseas military base, operational since 2017 — supports anti-piracy and blue-water operations.",
+  },
+  // --- United Kingdom ---
+  {
+    id: "faslane",
+    name: "HMNB Clyde (Faslane)",
+    country: "United Kingdom",
+    operator: "Royal Navy",
+    lat: 56.0667,
+    lon: -4.8172,
+    type: "Naval Base",
+    description: "Home of the UK's Trident submarine-based nuclear deterrent.",
+  },
+  {
+    id: "akrotiri",
+    name: "RAF Akrotiri",
+    country: "Cyprus (UK Sovereign Base Area)",
+    operator: "Royal Air Force",
+    lat: 34.5842,
+    lon: 32.9878,
+    type: "Air Base",
+    description: "Sovereign Base Area on Cyprus — staging point for UK and coalition operations in the Eastern Mediterranean and Middle East.",
+  },
+  // --- France ---
+  {
+    id: "toulon",
+    name: "Toulon Naval Base (Arsenal de Toulon)",
+    country: "France",
+    operator: "French Navy",
+    lat: 43.1049,
+    lon: 5.9283,
+    type: "Naval Base",
+    description: "France's main naval base and home port of aircraft carrier Charles de Gaulle.",
+  },
+  {
+    id: "djibouti-france",
+    name: "French Forces Djibouti (FFDj)",
+    country: "Djibouti",
+    operator: "French Armed Forces",
+    lat: 11.5478,
+    lon: 43.1453,
+    type: "Combined Base",
+    description: "France's largest overseas military base (~1,500 personnel) — supports operations in the Horn of Africa and Indian Ocean.",
+  },
+  // --- NATO allies ---
+  {
+    id: "rota",
+    name: "Naval Station Rota",
+    country: "Spain",
+    operator: "US Navy / Spanish Navy",
+    lat: 36.6261,
+    lon: -6.3500,
+    type: "Naval Base",
+    description: "Joint US-Spanish base — forward-deployed Aegis Ballistic Missile Defense destroyers.",
+  },
+  {
+    id: "sigonella",
+    name: "NAS Sigonella",
+    country: "Italy",
+    operator: "US Navy / Italian Air Force",
+    lat: 37.4017,
+    lon: 14.9222,
+    type: "Air/Naval Base",
+    description: "Major US and NATO hub in the central Mediterranean — supports P-8 maritime patrol and MQ-4C Triton operations.",
+  },
+  // --- Middle East ---
+  {
+    id: "king-abdulaziz",
+    name: "King Abdulaziz Air Base (Prince Sultan AB)",
+    country: "Saudi Arabia",
+    operator: "Royal Saudi Air Force / US",
+    lat: 24.0622,
+    lon: 47.5803,
+    type: "Air Base",
+    description: "Major combined air operations center — has periodically hosted forward-deployed US forces.",
+  },
+  {
+    id: "nsw-bahrain",
+    name: "NSA Bahrain",
+    country: "Bahrain",
+    operator: "US Navy",
+    lat: 26.2354,
+    lon: 50.6044,
+    type: "Naval Base",
+    description: "Headquarters of US Naval Forces Central Command (NAVCENT) and the US 5th Fleet.",
+  },
+  // --- Other ---
+  {
+    id: "changi",
+    name: "Changi Naval Base",
+    country: "Singapore",
+    operator: "Republic of Singapore Navy",
+    lat: 1.3111,
+    lon: 103.9825,
+    type: "Naval Base",
+    description: "Singapore's main naval facility — also hosts regular US Navy carrier visits under bilateral agreements.",
+  },
+];

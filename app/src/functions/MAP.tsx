@@ -11,6 +11,8 @@ import { fetchHistoricalVolcanoes, fetchLiveVolcanoAlerts, mergeVolcanoSources, 
 import { usePortLayer } from "./map/usePortLayer";
 import { fetchPorts, HARBOR_SIZE_LABEL, type HarborSize } from "./map/ports";
 import { useChokepointLayer } from "./map/useChokepointLayer";
+import { useMilitaryBaseLayer } from "./map/useMilitaryBaseLayer";
+import { useNuclearFacilityLayer } from "./map/useNuclearFacilityLayer";
 import { cn } from "@/lib/cn";
 
 const QUAKE_WINDOWS: QuakeWindow[] = ["day", "week", "month"];
@@ -28,6 +30,8 @@ export function MAP() {
   const [portsOn, setPortsOn] = useState(false);
   const [portSize, setPortSize] = useState<HarborSize>("L");
   const [chokepointsOn, setChokepointsOn] = useState(false);
+  const [militaryOn, setMilitaryOn] = useState(false);
+  const [nuclearOn, setNuclearOn] = useState(false);
 
   useTerminatorLayer(map, terminatorOn);
 
@@ -77,6 +81,8 @@ export function MAP() {
   usePortLayer(map, portsQuery.data, portsOn);
 
   useChokepointLayer(map, chokepointsOn);
+  useMilitaryBaseLayer(map, militaryOn);
+  useNuclearFacilityLayer(map, nuclearOn);
 
   return (
     <div className="h-full w-full relative">
@@ -187,6 +193,16 @@ export function MAP() {
           <div>
             <LayerToggle label="Maritime Chokepoints (EIA)" active={chokepointsOn} onClick={() => setChokepointsOn((v) => !v)} />
             <div className="mt-1.5 text-[10px] text-term-muted">7 strategic straits/canals · static</div>
+          </div>
+
+          <div>
+            <LayerToggle label="Military Installations" active={militaryOn} onClick={() => setMilitaryOn((v) => !v)} />
+            <div className="mt-1.5 text-[10px] text-term-muted">Publicly documented bases · static</div>
+          </div>
+
+          <div>
+            <LayerToggle label="Nuclear Facilities (IAEA)" active={nuclearOn} onClick={() => setNuclearOn((v) => !v)} />
+            <div className="mt-1.5 text-[10px] text-term-muted">Power reactors worldwide · static</div>
           </div>
         </div>
       </div>
