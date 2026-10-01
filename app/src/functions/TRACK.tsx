@@ -6,6 +6,7 @@ import { SetupsManager } from "@/components/journal/SetupsManager";
 import { JournalSettings } from "@/components/journal/JournalSettings";
 import { TradeTable } from "@/components/journal/TradeTable";
 import { StatsPanel } from "@/components/journal/StatsPanel";
+import { BackupPanel } from "@/components/journal/BackupPanel";
 import { cn } from "@/lib/cn";
 
 type EntryMode = "log" | "import";
@@ -35,7 +36,7 @@ export function TRACK() {
   return (
     <div className="p-3 flex flex-col gap-3 text-[12px]">
       {/* Entry mode toggle */}
-      <div className="flex gap-1">
+      <div className="flex gap-1 items-start">
         {(["log", "import"] as const).map((m) => (
           <button key={m} onClick={() => setMode(m)}
             className={cn("px-3 py-1.5 border text-[11px] uppercase tracking-wider font-bold",
@@ -43,6 +44,7 @@ export function TRACK() {
             {m === "log" ? "Log a Trade" : "Bulk Import"}
           </button>
         ))}
+        <BackupPanel />
       </div>
 
       <div className="grid gap-3" style={{ gridTemplateColumns: "minmax(0,1fr) minmax(260px,280px)" }}>
