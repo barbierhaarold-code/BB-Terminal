@@ -184,7 +184,10 @@ export function applyReplace(b: BackupFile): ApplyResult {
   return { mode: "replace", before, after, added: after, skipped: 0 };
 }
 
-/** Merge: adds trades not already present (same id or same fill signature).
+/** Merge: adds trades not already present (same id or same fill signature)
+ * *before the import*. Imported trades are compared only against the
+ * pre-existing ones, never against each other, so identical fills inside the
+ * file (e.g. two partial closes at the same price) are all kept.
  * Existing trades, base capital and settings are left untouched. Imported
  * setups are matched to existing ones by id, then by name; unmatched ones are
  * added, and trade setupIds are remapped accordingly. */
@@ -205,7 +208,6 @@ export function applyMerge(b: BackupFile): ApplyResult {
   let skipped = 0;
   for (const t of b.data.trades) {
     if (ids.has(t.id) || sigs.has(signature(t))) { skipped++; continue; }
-    ids.add(t.id); sigs.add(signature(t));
     added.push(t.setupId && remap.has(t.setupId) ? { ...t, setupId: remap.get(t.setupId) } : t);
   }
 
