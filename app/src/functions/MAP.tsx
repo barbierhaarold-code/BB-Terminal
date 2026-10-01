@@ -425,7 +425,14 @@ function AisStatus({
       );
   } else if (result.status === "connecting") body = <span className="text-term-muted">Connecting to AIS feed…</span>;
   else body = <span className="text-term-red">Feed unavailable — {(result.error ?? "no AIS data is arriving").replace(/\.$/, "")}. No vessels shown.</span>;
-  return <div className="mt-1.5 text-[10px]">{body}</div>;
+  return (
+    <div className="mt-1.5 text-[10px]">
+      {body}
+      {result && result.parseErrors > 0 && (
+        <div className="text-term-muted/70 mt-0.5">{result.parseErrors} message{result.parseErrors === 1 ? "" : "s"} failed to parse (server log has detail)</div>
+      )}
+    </div>
+  );
 }
 
 function LayerStatus({

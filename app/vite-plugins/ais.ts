@@ -8,7 +8,7 @@
 // without anyone polling, so an unused layer costs nothing.
 // https://aisstream.io/documentation
 import type { Plugin } from "vite";
-import { middlewarePlugin, sendJson } from "./shared";
+import { middlewarePlugin, sendJson, errMessage } from "./shared";
 
 const DEFAULT_WS_URL = "wss://stream.aisstream.io/v0/stream";
 const IDLE_MS = 5 * 60_000;
@@ -30,6 +30,26 @@ export function aisProxyPlugin(apiKey: string | undefined, wsUrl: string | undef
   let lastRequestAt = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let backoff = 2_000;
+  let parseErrors = 0;
+
+  /** Normalizes a WebSocket message payload to text. Node's global WebSocket
+   * (undici) hands binary frames to `onmessage` as a Blob by default — and
+   * AISStream's JSON frames arrive binary here, not as `string` — so decoding
+   * via `String(ev.data)` previously produced "[object Blob]", which failed
+   * every JSON.parse and silently dropped every message on the floor. */
+  async function readMessageText(data: unknown): Promise<string> {
+    if (typeof data === "string") return data;
+    if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
+    if (ArrayBuffer.isView(data)) return new TextDecoder().decode(data as ArrayBufferView);
+    if (data instanceof Blob) return data.text();
+    throw new Error(`Unsupported WebSocket message data type: ${Object.prototype.toString.call(data)}`);
+  }
+
+  function recordParseError(stage: string, raw: unknown, err: unknown) {
+    parseErrors++;
+    const preview = typeof raw === "string" ? raw.slice(0, 200) : Object.prototype.toString.call(raw);
+    console.error(`[ais-proxy] ${stage} failed (#${parseErrors}): ${errMessage(err)} — raw: ${preview}`);
+  }
 
   function prune() {
     const cutoff = Date.now() - STALE_VESSEL_MS;
@@ -53,30 +73,36 @@ export function aisProxyPlugin(apiKey: string | undefined, wsUrl: string | undef
       }));
     };
     socket.onmessage = (ev) => {
-      let msg: any;
-      try { msg = JSON.parse(typeof ev.data === "string" ? ev.data : String(ev.data)); } catch { return; }
-      if (msg.error) { lastError = String(msg.error); return; }
-      const pos = msg.Message?.PositionReport;
-      const meta = msg.MetaData;
-      if (!pos || !meta) return;
-      const lat = Number(meta.latitude ?? pos.Latitude);
-      const lon = Number(meta.longitude ?? pos.Longitude);
-      // AIS uses 91/181 as "not available" sentinels.
-      if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
-      lastMessageAt = Date.now();
-      lastError = null;
-      backoff = 2_000;
-      if (vessels.size >= MAX_VESSELS && !vessels.has(meta.MMSI)) prune();
-      if (vessels.size >= MAX_VESSELS && !vessels.has(meta.MMSI)) return;
-      vessels.set(meta.MMSI, {
-        mmsi: meta.MMSI,
-        name: String(meta.ShipName ?? "").trim(),
-        lat, lon,
-        sog: Number(pos.Sog) || 0,
-        cog: Number(pos.Cog) || 0,
-        heading: pos.TrueHeading != null && pos.TrueHeading < 360 ? Number(pos.TrueHeading) : null,
-        seen: Date.now(),
-      });
+      void (async () => {
+        let text: string;
+        try { text = await readMessageText(ev.data); }
+        catch (e) { recordParseError("decode", ev.data, e); return; }
+        let msg: any;
+        try { msg = JSON.parse(text); }
+        catch (e) { recordParseError("JSON.parse", text, e); return; }
+        if (msg.error) { lastError = String(msg.error); return; }
+        const pos = msg.Message?.PositionReport;
+        const meta = msg.MetaData;
+        if (!pos || !meta) return;
+        const lat = Number(meta.latitude ?? pos.Latitude);
+        const lon = Number(meta.longitude ?? pos.Longitude);
+        // AIS uses 91/181 as "not available" sentinels.
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return;
+        lastMessageAt = Date.now();
+        lastError = null;
+        backoff = 2_000;
+        if (vessels.size >= MAX_VESSELS && !vessels.has(meta.MMSI)) prune();
+        if (vessels.size >= MAX_VESSELS && !vessels.has(meta.MMSI)) return;
+        vessels.set(meta.MMSI, {
+          mmsi: meta.MMSI,
+          name: String(meta.ShipName ?? "").trim(),
+          lat, lon,
+          sog: Number(pos.Sog) || 0,
+          cog: Number(pos.Cog) || 0,
+          heading: pos.TrueHeading != null && pos.TrueHeading < 360 ? Number(pos.TrueHeading) : null,
+          seen: Date.now(),
+        });
+      })();
     };
     socket.onerror = () => { lastError ??= opened ? "AISStream socket error" : "Could not connect to AISStream"; };
     socket.onclose = (ev) => {
@@ -104,7 +130,11 @@ export function aisProxyPlugin(apiKey: string | undefined, wsUrl: string | undef
     if (!apiKey) return "no_key";
     if (ws && !opened) return "connecting";
     if (ws && opened && lastMessageAt && Date.now() - lastMessageAt < STALLED_AFTER_MS) return "connected";
-    if (ws && opened) return lastMessageAt ? "stalled" : "connecting";
+    // Covers a socket that stays open after AISStream rejects it (e.g. a bad
+    // API key sends `{error: "..."}` over the socket without closing it) —
+    // without this, `lastError` is set correctly but never consulted here,
+    // so the feed reports "connecting" forever instead of the real error.
+    if (ws && opened) return lastMessageAt ? "stalled" : lastError ? "error" : "connecting";
     return lastError ? "error" : "connecting";
   }
 
@@ -123,6 +153,7 @@ export function aisProxyPlugin(apiKey: string | undefined, wsUrl: string | undef
         : status === "error" || status === "stalled" ? (lastError ?? "No AIS messages received recently.") : null,
       lastMessageAt: lastMessageAt || null,
       tracked: vessels.size,
+      parseErrors,
     };
     // Only serve positions while the feed is demonstrably alive — never a frozen snapshot presented as live.
     if (status !== "connected") { sendJson(res, { ...base, results: [] }, status === "connecting" ? 200 : 503); return; }

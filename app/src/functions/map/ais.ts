@@ -15,6 +15,8 @@ export interface AisResult {
   tracked: number;
   truncated: boolean;
   lastMessageAt: number | null;
+  /** Count of messages the feed received but couldn't decode/parse (server-side, cumulative for the dev server's lifetime) — a diagnostic signal, not a reason by itself to treat the feed as down. */
+  parseErrors: number;
 }
 
 export const AIS_POLL_MS = 15_000;
@@ -32,5 +34,6 @@ export async function fetchVessels(bounds: L.LatLngBounds | null): Promise<AisRe
     tracked: body.tracked ?? 0,
     truncated: !!body.truncated,
     lastMessageAt: body.lastMessageAt ?? null,
+    parseErrors: Number(body.parseErrors) || 0,
   };
 }
