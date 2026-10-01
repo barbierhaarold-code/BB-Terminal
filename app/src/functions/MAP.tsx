@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import L from "leaflet";
 import { useLeafletMap } from "./map/useLeafletMap";
 import { useTerminatorLayer } from "./map/useTerminatorLayer";
 import { useEarthquakeLayer } from "./map/useEarthquakeLayer";
@@ -13,6 +14,17 @@ import { fetchPorts, HARBOR_SIZE_LABEL, type HarborSize } from "./map/ports";
 import { useChokepointLayer } from "./map/useChokepointLayer";
 import { useMilitaryBaseLayer } from "./map/useMilitaryBaseLayer";
 import { useNuclearFacilityLayer } from "./map/useNuclearFacilityLayer";
+import { useGdeltLayer } from "./map/useGdeltLayer";
+import { fetchGdelt, GDELT_CATEGORY_COLOR } from "./map/gdelt";
+import { useWeatherLayer } from "./map/useWeatherLayer";
+import { fetchWeatherAlerts, REGION_LABEL, SEVERITY_COLOR, type WeatherRegion } from "./map/weather";
+import { useGpsJamLayer } from "./map/useGpsJamLayer";
+import { fetchGpsJam, JAM_COLOR } from "./map/gpsjam";
+import { useAisLayer } from "./map/useAisLayer";
+import { AIS_POLL_MS, fetchVessels } from "./map/ais";
+import { useCountryIntelLayer } from "./map/useCountryIntelLayer";
+import { fetchCountryBoundaries } from "./map/countryIntel";
+import { CountryIntelPanel } from "./map/CountryIntelPanel";
 import { cn } from "@/lib/cn";
 
 const QUAKE_WINDOWS: QuakeWindow[] = ["day", "week", "month"];
@@ -32,6 +44,14 @@ export function MAP() {
   const [chokepointsOn, setChokepointsOn] = useState(false);
   const [militaryOn, setMilitaryOn] = useState(false);
   const [nuclearOn, setNuclearOn] = useState(false);
+  const [gdeltOn, setGdeltOn] = useState(false);
+  const [weatherOn, setWeatherOn] = useState(false);
+  const [countryOn, setCountryOn] = useState(false);
+  const [aisOn, setAisOn] = useState(false);
+  const [gpsJamOn, setGpsJamOn] = useState(false);
+  const [selectedCountry, setSelectedCountry] = useState<{ iso3: string; name: string } | null>(null);
+  // Viewport for the AIS query, rounded to whole degrees so small pans don't refetch.
+  const [aisBounds, setAisBounds] = useState<L.LatLngBounds | null>(null);
 
   useTerminatorLayer(map, terminatorOn);
 
@@ -83,6 +103,63 @@ export function MAP() {
   useChokepointLayer(map, chokepointsOn);
   useMilitaryBaseLayer(map, militaryOn);
   useNuclearFacilityLayer(map, nuclearOn);
+
+  const gdeltQuery = useQuery({
+    queryKey: ["map-gdelt"],
+    queryFn: fetchGdelt,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    enabled: gdeltOn,
+  });
+  useGdeltLayer(map, gdeltQuery.data?.events, gdeltOn);
+
+  const weatherQuery = useQuery({
+    queryKey: ["map-weather"],
+    queryFn: fetchWeatherAlerts,
+    staleTime: 5 * 60_000,
+    refetchInterval: 5 * 60_000,
+    enabled: weatherOn,
+  });
+  useWeatherLayer(map, weatherQuery.data?.alerts, weatherOn);
+
+  const gpsJamQuery = useQuery({
+    queryKey: ["map-gpsjam"],
+    queryFn: fetchGpsJam,
+    staleTime: 60 * 60_000,
+    refetchInterval: 60 * 60_000,
+    enabled: gpsJamOn,
+  });
+  useGpsJamLayer(map, gpsJamQuery.data, gpsJamOn);
+
+  useEffect(() => {
+    if (!map || !aisOn) return;
+    const update = () => {
+      const b = map.getBounds();
+      setAisBounds(L.latLngBounds([Math.floor(b.getSouth()), Math.floor(b.getWest())], [Math.ceil(b.getNorth()), Math.ceil(b.getEast())]));
+    };
+    update();
+    map.on("moveend", update);
+    return () => { map.off("moveend", update); };
+  }, [map, aisOn]);
+  const aisKey = aisBounds ? aisBounds.toBBoxString() : "world";
+  const aisQuery = useQuery({
+    queryKey: ["map-ais", aisKey],
+    queryFn: () => fetchVessels(aisBounds),
+    refetchInterval: AIS_POLL_MS,
+    staleTime: AIS_POLL_MS,
+    // Keep drawing the previous viewport's vessels while a pan refetches, but only if that response was itself live.
+    placeholderData: (prev) => prev,
+    enabled: aisOn && !!aisBounds,
+  });
+  useAisLayer(map, aisQuery.data, aisOn);
+
+  const boundariesQuery = useQuery({
+    queryKey: ["map-country-boundaries"],
+    queryFn: fetchCountryBoundaries,
+    staleTime: Infinity,
+    enabled: countryOn,
+  });
+  useCountryIntelLayer(map, boundariesQuery.data, countryOn, selectedCountry?.iso3 ?? null, (iso3, name) => setSelectedCountry({ iso3, name }));
 
   return (
     <div className="h-full w-full relative">
@@ -204,8 +281,110 @@ export function MAP() {
             <LayerToggle label="Nuclear Facilities (IAEA)" active={nuclearOn} onClick={() => setNuclearOn((v) => !v)} />
             <div className="mt-1.5 text-[10px] text-term-muted">Power reactors worldwide · static</div>
           </div>
+
+          <div>
+            <LayerToggle label="Conflict & Events (GDELT)" active={gdeltOn} onClick={() => setGdeltOn((v) => !v)} />
+            <div className="mt-1.5 text-[10px] text-term-muted">Machine-coded news · trailing ~4H · 15-min updates</div>
+            {gdeltOn && gdeltQuery.data ? (
+              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-term-muted">
+                {Object.entries(GDELT_CATEGORY_COLOR).filter(([k]) => k !== "Mass violence").map(([k, c]) => (
+                  <span key={k} className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full" style={{ background: c }} />{k}</span>
+                ))}
+              </div>
+            ) : null}
+            <LayerStatus
+              enabled={gdeltOn}
+              loading={gdeltQuery.isLoading}
+              error={gdeltQuery.error as Error | null}
+              count={gdeltQuery.data?.events.length}
+              unit="locations"
+            />
+          </div>
+
+          <div>
+            <LayerToggle label="Weather Alerts" active={weatherOn} onClick={() => setWeatherOn((v) => !v)} />
+            <div className="mt-1.5 text-[10px] text-term-muted">Coverage: US, Europe, Canada only — no alerts shown elsewhere does not mean none exist.</div>
+            <LayerStatus
+              enabled={weatherOn}
+              loading={weatherQuery.isLoading}
+              error={weatherQuery.error as Error | null}
+              count={weatherQuery.data?.alerts.length}
+              unit="active alerts"
+            />
+            {weatherOn && weatherQuery.data ? (
+              <div className="mt-1 flex flex-col gap-0.5 text-[10px]">
+                {(Object.keys(REGION_LABEL) as WeatherRegion[]).map((r) => {
+                  const st = weatherQuery.data!.regions[r];
+                  return (
+                    <div key={r} className={st.status === "error" ? "text-term-red" : "text-term-muted"}>
+                      {REGION_LABEL[r]}: {st.status === "error" ? `unavailable — ${st.error}` : `${st.count}`}{st.status === "ok" && st.error ? ` (${st.error})` : ""}
+                    </div>
+                  );
+                })}
+                <div className="flex flex-wrap gap-x-2 text-term-muted">
+                  {(["Severe", "Moderate", "Minor"] as const).map((k) => (
+                    <span key={k} className="flex items-center gap-1"><span className="w-1.5 h-1.5" style={{ background: SEVERITY_COLOR[k] }} />{k}</span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div>
+            <LayerToggle label="Country Intel" active={countryOn} onClick={() => { setCountryOn((v) => !v); setSelectedCountry(null); }} />
+            <div className="mt-1.5 text-[10px] text-term-muted">Click a country · World Bank, CPI, HDI, OFAC, State Dept</div>
+            <LayerStatus
+              enabled={countryOn}
+              loading={boundariesQuery.isLoading}
+              error={boundariesQuery.error as Error | null}
+              count={boundariesQuery.data?.features.length}
+              unit="countries"
+            />
+          </div>
+
+          <div>
+            <LayerToggle label="Vessels (AIS)" active={aisOn} onClick={() => setAisOn((v) => !v)} />
+            <div className="mt-1.5 text-[10px] text-term-muted">Live community feed (AISStream.io) · no uptime guarantee</div>
+            <AisStatus
+              enabled={aisOn}
+              loading={aisQuery.isLoading || (aisOn && !aisBounds)}
+              fetchError={aisQuery.error as Error | null}
+              result={aisQuery.data}
+            />
+          </div>
+
+          <div>
+            <LayerToggle label="GPS Jamming (GPSJam)" active={gpsJamOn} onClick={() => setGpsJamOn((v) => !v)} />
+            <div className="mt-1.5 text-[10px] text-term-muted">Daily ADS-B-derived grid · hobby source, no continuity guarantee</div>
+            {gpsJamOn && gpsJamQuery.data && !gpsJamQuery.data.stale ? (
+              <div className="mt-1 flex gap-2 text-[10px] text-term-muted">
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5" style={{ background: JAM_COLOR.medium }} />2–10% bad</span>
+                <span className="flex items-center gap-1"><span className="w-1.5 h-1.5" style={{ background: JAM_COLOR.high }} />&gt;10% bad</span>
+              </div>
+            ) : null}
+            {gpsJamOn && gpsJamQuery.data?.stale ? (
+              <div className="mt-1.5 text-[10px] text-term-red">
+                Source is stale — latest data is from {gpsJamQuery.data.date} ({gpsJamQuery.data.ageDays} days old). Not displayed, to avoid showing old data as current.
+              </div>
+            ) : null}
+            <LayerStatus
+              enabled={gpsJamOn}
+              loading={gpsJamQuery.isLoading}
+              error={gpsJamQuery.error as Error | null}
+              count={gpsJamQuery.data?.stale ? undefined : gpsJamQuery.data?.cells.length}
+              unit={gpsJamQuery.data ? `affected cells · data for ${gpsJamQuery.data.date}` : "affected cells"}
+              hideEmptyWhenStale={!!gpsJamQuery.data?.stale}
+            />
+            {gpsJamOn && gpsJamQuery.data?.suspect && !gpsJamQuery.data.stale ? (
+              <div className="mt-1 text-[10px] text-term-muted">GPSJam flags this day's data as suspect (low aircraft coverage).</div>
+            ) : null}
+          </div>
         </div>
       </div>
+
+      {countryOn && selectedCountry ? (
+        <CountryIntelPanel iso3={selectedCountry.iso3} name={selectedCountry.name} onClose={() => setSelectedCountry(null)} />
+      ) : null}
     </div>
   );
 }
@@ -228,9 +407,31 @@ function LayerToggle({ label, active, onClick }: { label: string; active: boolea
   );
 }
 
+function AisStatus({
+  enabled, loading, fetchError, result,
+}: { enabled: boolean; loading: boolean; fetchError: Error | null; result: import("./map/ais").AisResult | undefined }) {
+  let body: React.ReactNode;
+  if (!enabled) body = <span className="text-term-muted">Layer hidden</span>;
+  else if (fetchError) body = <span className="text-term-red">Feed unavailable — {fetchError.message}</span>;
+  else if (!result) body = <span className="text-term-muted">{loading ? "Loading…" : "No data available."}</span>;
+  else if (result.status === "connected") {
+    body = result.vessels.length === 0
+      ? <span className="text-term-muted">Connected — no vessels in view yet.</span>
+      : (
+        <span className="text-term-muted">
+          <span className="text-term-heading num">{result.vessels.length}</span> vessels in view
+          {result.truncated ? " (capped — zoom in for more)" : ""} · <span className="text-term-green">live</span>
+        </span>
+      );
+  } else if (result.status === "connecting") body = <span className="text-term-muted">Connecting to AIS feed…</span>;
+  else body = <span className="text-term-red">Feed unavailable — {(result.error ?? "no AIS data is arriving").replace(/\.$/, "")}. No vessels shown.</span>;
+  return <div className="mt-1.5 text-[10px]">{body}</div>;
+}
+
 function LayerStatus({
-  enabled, loading, error, count, unit,
-}: { enabled: boolean; loading: boolean; error: Error | null; count: number | undefined; unit: string }) {
+  enabled, loading, error, count, unit, hideEmptyWhenStale,
+}: { enabled: boolean; loading: boolean; error: Error | null; count: number | undefined; unit: string; hideEmptyWhenStale?: boolean }) {
+  if (hideEmptyWhenStale && enabled && !loading && !error) return null;
   return (
     <div className="mt-1.5 text-[10px]">
       {!enabled ? (

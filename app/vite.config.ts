@@ -2,6 +2,11 @@ import { defineConfig, loadEnv, type Plugin, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { gdeltProxyPlugin } from "./vite-plugins/gdelt";
+import { weatherProxyPlugin } from "./vite-plugins/weather";
+import { countryIntelProxyPlugin } from "./vite-plugins/countryIntel";
+import { aisProxyPlugin } from "./vite-plugins/ais";
+import { gpsJamProxyPlugin } from "./vite-plugins/gpsjam";
 
 const API_PREFIX = "/api";
 const API_TARGET = "http://127.0.0.1:6900";
@@ -966,6 +971,11 @@ export default defineConfig(({ mode }) => {
       copilotProxyPlugin(env.ANTHROPIC_API_KEY),
       firmsProxyPlugin(env.FIRMS_MAP_KEY),
       wpiProxyPlugin(),
+      gdeltProxyPlugin(),
+      weatherProxyPlugin(),
+      countryIntelProxyPlugin(),
+      aisProxyPlugin(env.AISSTREAM_API_KEY, env.AISSTREAM_WS_URL),
+      gpsJamProxyPlugin(),
     ],
     resolve: {
       alias: { "@": path.resolve(__dirname, "src") },
