@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot } from "lucide-react";
+import { Bot, LogOut } from "lucide-react";
 import { parseCommand, FUNCTIONS } from "@/lib/functions";
 import { useWorkspace } from "@/store/workspaceStore";
 import { useCopilot } from "@/store/copilotStore";
+import { useAuth } from "@/store/authStore";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { cn } from "@/lib/cn";
 
@@ -15,6 +16,8 @@ export function CommandBar() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { openTab, activeSymbol } = useWorkspace();
+  const authEmail = useAuth((s) => s.email);
+  const signOut = useAuth((s) => s.signOut);
   const { isOpen: copilotOpen, toggle: toggleCopilot } = useCopilot();
 
   useEffect(() => {
@@ -151,6 +154,17 @@ export function CommandBar() {
       </div>
 
       {err && <span className="text-term-red text-[10px] uppercase tracking-[0.18em] shrink-0">{err}</span>}
+
+      <div className="flex items-center gap-2 shrink-0 ml-auto">
+        {authEmail && <span title={authEmail} className="hidden md:inline text-term-muted text-[10px] tracking-wider max-w-[200px] truncate">{authEmail}</span>}
+        <button
+          onClick={() => void signOut()}
+          title="Log out"
+          className="flex items-center gap-1.5 px-2 py-1 border border-term-border text-term-muted text-[10px] uppercase tracking-[0.18em] hover:border-term-amberDim hover:text-term-amberBright transition-colors"
+        >
+          <LogOut size={12} /> Log out
+        </button>
+      </div>
     </div>
   );
 }
