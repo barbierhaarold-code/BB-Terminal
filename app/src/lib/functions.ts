@@ -19,7 +19,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "HELP", name: "Function Directory",    needsSymbol: false, group: "System", summary: "List of all terminal functions" },
   // Intercepted in workspaceStore.openTab — opens the dockable AI Copilot
   // side panel instead of becoming a workspace tab (see copilotStore.ts).
-  { code: "COPILOT", name: "AI Copilot",         needsSymbol: false, group: "System", summary: "Chat with the terminal's data — scalper, track record, news, portfolio" },
+  { code: "COPILOT", name: "AI Copilot",         needsSymbol: false, group: "System", summary: "Chat with the terminal's data — market news, econ calendar, spot gold & FX sessions, track record, portfolio" },
 
   { code: "INTEL", name: "Stock Intelligence",   needsSymbol: true,  group: "Security", summary: "Full scorecard — signals across technical, value, fundamentals, analysts" },
   { code: "RESEARCH", name: "Equity Research",   needsSymbol: true,  group: "Security", summary: "Deep-dive workspace — DCF, fundamentals grade, financials, ownership, ratings, peers" },

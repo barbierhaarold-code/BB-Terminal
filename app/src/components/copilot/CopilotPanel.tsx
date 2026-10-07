@@ -7,10 +7,11 @@ import { cn } from "@/lib/cn";
 import type { ContentBlock } from "@/lib/copilotConfig";
 
 const EXAMPLE_PROMPTS = [
-  "What's spot XAU right now and are we in the London/NY overlap?",
+  "What are the top market headlines right now?",
   "What's my current win rate and profit factor?",
-  "What's the next major econ event and could it move gold?",
+  "What's the next major econ event and which markets could it move?",
   "How's my portfolio doing vs the S&P 500?",
+  "What's spot gold right now and which FX sessions are open?",
 ];
 
 export function CopilotPanel() {
@@ -59,8 +60,8 @@ export function CopilotPanel() {
         {messages.length === 0 && (
           <div className="flex flex-col gap-3">
             <div className="text-term-muted text-[11px] leading-relaxed">
-              Ask about live gold/FX conditions, your Track Record stats, recent news &amp; the econ calendar, or your
-              portfolio. Read-only — this copilot never places or logs trades.
+              Ask about recent market news &amp; the econ calendar, spot gold and FX session conditions, your Track
+              Record stats, or your portfolio. Read-only — this copilot never places or logs trades.
             </div>
             <div className="flex flex-col gap-1.5">
               {EXAMPLE_PROMPTS.map((p) => (

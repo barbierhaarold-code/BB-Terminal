@@ -387,7 +387,7 @@ function NewsPanel() {
 export function CC() {
   return (
     <div className="p-3 flex flex-col gap-3">
-      {/* Band 1: index cards (A) + pinned XAU scalper */}
+      {/* Band 1: index cards (A) + pinned gold (XAU/USD) panel */}
       <div className="grid gap-3" style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)", minHeight: 190 }}>
         <UsMarkets />
         <XauScalper />
