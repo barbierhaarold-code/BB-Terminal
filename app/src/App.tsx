@@ -39,6 +39,7 @@ import { INVEST } from "@/functions/INVEST";
 import { QUANT } from "@/functions/QUANT";
 import { PORTFOLIO } from "@/functions/PORTFOLIO";
 import { MAP } from "@/functions/MAP";
+import { Tutorial } from "@/components/Tutorial";
 
 const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   CC: () => <CC />,
@@ -113,6 +114,7 @@ export default function App() {
       <TickerTape />
       <StatusBar />
       <CopilotPanel />
+      <Tutorial />
     </div>
   );
 }
