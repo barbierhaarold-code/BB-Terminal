@@ -27,6 +27,7 @@ import { fetchCountryBoundaries } from "./map/countryIntel";
 import { CountryIntelPanel } from "./map/CountryIntelPanel";
 import { useFeatureLock } from "@/store/featureLockStore";
 import { LockedFeature } from "@/components/LockedFeature";
+import { LayerExplainer } from "./map/LayerExplainer";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -179,9 +180,11 @@ export function MAP() {
 
         <div className="p-2.5 flex flex-col gap-3">
           <LayerToggle label="Day / Night Terminator" active={terminatorOn} onClick={() => setTerminatorOn((v) => !v)} />
+          <LayerExplainer id="terminator" on={terminatorOn} />
 
           <div>
             <LayerToggle label="Earthquakes (USGS)" active={quakesOn} onClick={() => setQuakesOn((v) => !v)} />
+            <LayerExplainer id="quakes" on={quakesOn} />
             <div className="flex gap-1 mt-1.5">
               {QUAKE_WINDOWS.map((w) => (
                 <button
@@ -211,6 +214,7 @@ export function MAP() {
 
           <div>
             <LayerToggle label="Active Fires (NASA FIRMS)" active={firesOn} onClick={() => setFiresOn((v) => !v)} />
+            <LayerExplainer id="fires" on={firesOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">VIIRS · Last 24H</div>
             <LayerStatus
               enabled={firesOn}
@@ -223,6 +227,7 @@ export function MAP() {
 
           <div>
             <LayerToggle label="Volcanoes" active={volcanoesOn} onClick={() => setVolcanoesOn((v) => !v)} />
+            <LayerExplainer id="volcanoes" on={volcanoesOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">NOAA NCEI history · USGS live alerts (US only)</div>
             <LayerStatus
               enabled={volcanoesOn}
@@ -244,6 +249,7 @@ export function MAP() {
 
           <div>
             <LayerToggle label="Ports (NGA World Port Index)" active={portsOn} onClick={() => setPortsOn((v) => !v)} />
+            <LayerExplainer id="ports" on={portsOn} />
             <div className="flex gap-1 mt-1.5">
               {PORT_SIZES.map((s) => (
                 <button
@@ -273,21 +279,25 @@ export function MAP() {
 
           <div>
             <LayerToggle label="Maritime Chokepoints (EIA)" active={chokepointsOn} onClick={() => setChokepointsOn((v) => !v)} />
+            <LayerExplainer id="chokepoints" on={chokepointsOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">7 strategic straits/canals · static</div>
           </div>
 
           <div>
             <LayerToggle label="Military Installations" active={militaryOn} onClick={() => setMilitaryOn((v) => !v)} />
+            <LayerExplainer id="military" on={militaryOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">Publicly documented bases · static</div>
           </div>
 
           <div>
             <LayerToggle label="Nuclear Facilities (IAEA)" active={nuclearOn} onClick={() => setNuclearOn((v) => !v)} />
+            <LayerExplainer id="nuclear" on={nuclearOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">Power reactors worldwide · static</div>
           </div>
 
           <div>
             <LayerToggle label="Conflict & Events (GDELT)" active={gdeltOn} onClick={() => setGdeltOn((v) => !v)} />
+            <LayerExplainer id="gdelt" on={gdeltOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">Machine-coded news · trailing ~4H · 15-min updates</div>
             {gdeltOn && gdeltQuery.data ? (
               <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-term-muted">
@@ -307,6 +317,7 @@ export function MAP() {
 
           <div>
             <LayerToggle label="Weather Alerts" active={weatherOn} onClick={() => setWeatherOn((v) => !v)} />
+            <LayerExplainer id="weather" on={weatherOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">Coverage: US, Europe, Canada only — no alerts shown elsewhere does not mean none exist.</div>
             <LayerStatus
               enabled={weatherOn}
@@ -336,6 +347,7 @@ export function MAP() {
 
           <div>
             <LayerToggle label="Country Intel" active={countryOn} onClick={() => { setCountryOn((v) => !v); setSelectedCountry(null); }} />
+            <LayerExplainer id="country" on={countryOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">Click a country · World Bank, CPI, HDI, OFAC, State Dept</div>
             <LayerStatus
               enabled={countryOn}
@@ -348,6 +360,7 @@ export function MAP() {
 
           <div>
             <LayerToggle label="Vessels (AIS)" active={aisOn} onClick={() => setAisOn((v) => !v)} />
+            <LayerExplainer id="ais" on={aisOn && !aisLocked} />
             <div className="mt-1.5 text-[10px] text-term-muted">Live community feed (AISStream.io) · no uptime guarantee</div>
             <AisStatus
               enabled={aisOn}
@@ -362,6 +375,7 @@ export function MAP() {
 
           <div>
             <LayerToggle label="GPS Jamming (GPSJam)" active={gpsJamOn} onClick={() => setGpsJamOn((v) => !v)} />
+            <LayerExplainer id="gpsjam" on={gpsJamOn} />
             <div className="mt-1.5 text-[10px] text-term-muted">Daily ADS-B-derived grid · hobby source, no continuity guarantee</div>
             {gpsJamOn && gpsJamQuery.data && !gpsJamQuery.data.stale ? (
               <div className="mt-1 flex gap-2 text-[10px] text-term-muted">
