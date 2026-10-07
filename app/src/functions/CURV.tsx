@@ -18,8 +18,22 @@ const TENORS: { k: keyof import("@/lib/api").TreasuryRow; label: string; years: 
   { k: "year_30", label: "30Y", years: 30 },
 ];
 
+/** Completed weekdays after a YYYY-MM-DD data date, before today (local) — i.e. sessions not yet published. */
+function businessDaysBehind(dataDate: string): number {
+  const [y, m, d] = dataDate.split("-").map(Number);
+  const cur = new Date(y, m - 1, d);
+  const end = new Date(); end.setHours(0, 0, 0, 0);
+  let n = 0;
+  while (cur < end) {
+    cur.setDate(cur.getDate() + 1);
+    const wd = cur.getDay();
+    if (cur < end && wd !== 0 && wd !== 6) n++;
+  }
+  return n;
+}
+
 export function CURV() {
-  const { data = [], isLoading, error } = useQuery({
+  const { data = [], isLoading, error, dataUpdatedAt } = useQuery({
     queryKey: ["treasury-rates"], queryFn: () => fetchTreasuryRates(40),
     refetchInterval: 3600_000,
   });
@@ -32,6 +46,10 @@ export function CURV() {
   if (isLoading) return <div className="p-4 text-term-muted uppercase text-[11px] tracking-widest">Loading yield curve…</div>;
   if (error) return <div className="p-4 text-term-red">{(error as Error).message}</div>;
   if (!today) return <div className="p-4 text-term-muted">No data.</div>;
+
+  // The Fed (H.15) publishes each day's curve with a lag, so the latest data date
+  // is normally 1+ business days behind today. Say so instead of implying "live".
+  const lagDays = businessDaysBehind(today.date);
 
   // Build SVG curve
   const W = 800, H = 220, padL = 40, padR = 12, padT = 16, padB = 28;
@@ -58,6 +76,10 @@ export function CURV() {
         <div>
           <div className="sub-header">AS OF</div>
           <div className="num text-term-heading text-lg">{fmtDate(today.date)}</div>
+          <div className="text-term-muted text-[10px] mt-0.5">
+            latest published · {lagDays <= 0 ? "current" : `${lagDays} business day${lagDays === 1 ? "" : "s"} behind`}
+            {" · "}Federal Reserve H.15 · fetched {new Date(dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </div>
         </div>
         <div>
           <div className="sub-header">2s-10s SPREAD</div>
