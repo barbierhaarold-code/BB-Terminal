@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchMetrics } from "@/lib/api";
 import { fmtPrice, fmtVolume, fmtPctFromDecimal } from "@/lib/format";
+import { DataNote } from "./research/shared";
 
 type Group = { title: string; rows: { label: string; val: React.ReactNode }[] };
 
@@ -63,6 +64,7 @@ export function KEY({ symbol }: { symbol: string }) {
 
   return (
     <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 text-[12px]">
+      <div className="col-span-full"><DataNote>Key ratios grouped by what they measure: valuation (price vs. earnings, sales, book value), profitability (margins, returns), leverage (debt) and efficiency. Useful for comparing a company with its peers or its own history. Ratios are computed from reported financials, so they reflect the past, and definitions differ slightly between data providers.</DataNote></div>
       {groups.map((g) => (
         <div key={g.title}>
           <div className="text-term-amber text-[10px] tracking-[0.25em] font-bold border-b border-term-border pb-1 mb-2">{g.title.toUpperCase()}</div>

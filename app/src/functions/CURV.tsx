@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchTreasuryRates } from "@/lib/api";
 import { fmtPctFromDecimal, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { DataNote } from "./research/shared";
 
 const TENORS: { k: keyof import("@/lib/api").TreasuryRow; label: string; years: number }[] = [
   { k: "month_1", label: "1M", years: 1/12 },
@@ -53,7 +54,8 @@ export function CURV() {
   }
 
   return (
-    <div className="p-4 text-[12px] grid grid-rows-[auto_auto_1fr] gap-4 h-full">
+    <div className="p-4 text-[12px] grid grid-rows-[auto_auto_auto_1fr] gap-4 h-full">
+      <DataNote>The yield curve plots US Treasury yields from 1 month to 30 years. Normally longer maturities pay more; when short yields exceed long ones (inverted, negative 2s-10s spread) it has historically often come before slowdowns, though the timing is uncertain. Useful as context for rates and the economy. Source: Federal Reserve H.15, published with a delay.</DataNote>
       <div className="flex items-center gap-6">
         <div>
           <div className="sub-header">AS OF</div>

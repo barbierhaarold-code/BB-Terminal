@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchIncome } from "@/lib/api";
 import { fmtVolume, fmtPrice, fmtDate } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { DataNote } from "./research/shared";
 
 interface Row { label: string; key: keyof import("@/lib/api").IncomeRow; money?: boolean; per?: boolean; }
 const ROWS: Row[] = [
@@ -28,7 +29,8 @@ export function FA({ symbol }: { symbol: string }) {
   if (sorted.length === 0) return <div className="p-4 text-term-muted text-[11px] uppercase tracking-widest">No data.</div>;
 
   return (
-    <div className="p-3 text-[12px]">
+    <div className="p-3 text-[12px] flex flex-col gap-3">
+      <DataNote>Income statement by year: revenue, costs and profit as reported. Useful to see whether sales and profits are growing and how margins change. Figures are as reported by the company via Yahoo Finance and can be restated.</DataNote>
       <table className="w-full grid-data">
         <thead>
           <tr>

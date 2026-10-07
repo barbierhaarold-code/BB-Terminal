@@ -14,6 +14,16 @@ export function GapNotice({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Plain-English "what is this / what is it useful for" note. Same container as GapNotice
+ * (so the two read as siblings); GapNotice flags a missing feed, DataNote explains a feed that exists. */
+export function DataNote({ children, label = "ABOUT" }: { children: React.ReactNode; label?: string }) {
+  return (
+    <div className="border border-term-borderSoft bg-term-panel2 px-3 py-2 text-[11px] text-term-muted leading-relaxed">
+      <span className="text-term-amber font-semibold mr-1">{label} —</span>{children}
+    </div>
+  );
+}
+
 export function SectionTitle({ children }: { children: React.ReactNode }) {
   return <div className="text-term-amber text-[10px] tracking-[0.25em] font-bold border-b border-term-border pb-1 mb-2">{children}</div>;
 }

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchConsensus } from "@/lib/api";
 import { fmtPrice, fmtPct } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { DataNote } from "./research/shared";
 
 export function EE({ symbol }: { symbol: string }) {
   const { data: e, isLoading, error } = useQuery({
@@ -21,6 +22,7 @@ export function EE({ symbol }: { symbol: string }) {
 
   return (
     <div className="p-4 grid gap-6 md:grid-cols-2 text-[12px]">
+      <div className="md:col-span-2"><DataNote>The consensus is the average view of the analysts covering the stock: a recommendation (buy / hold / sell), a price target range and how many analysts contribute. Useful to gauge market sentiment and expectations. Analysts are often wrong and slow to revise; a target is not a prediction.</DataNote></div>
       <div>
         <div className="sub-header">CONSENSUS RECOMMENDATION</div>
         <div className={cn("text-3xl font-bold tracking-widest mt-2",

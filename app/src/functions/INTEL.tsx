@@ -12,6 +12,7 @@ import {
 } from "@/lib/signals";
 import { useWorkspace } from "@/store/workspaceStore";
 import { cn } from "@/lib/cn";
+import { DataNote } from "./research/shared";
 
 export function INTEL({ symbol }: { symbol: string }) {
   const openTab = useWorkspace((s) => s.openTab);
@@ -124,15 +125,20 @@ export function INTEL({ symbol }: { symbol: string }) {
         </div>
       </div>
 
+      <DataNote>
+        Each row is one check (price vs. moving averages, valuation ratios, growth, margins, debt) scored bullish, neutral or bearish against fixed rule-of-thumb thresholds, then tallied into the verdict. Useful as a fast checklist of a stock's strengths and weaknesses. The thresholds are generic (not adjusted per industry) and the verdict is not a recommendation or advice.
+      </DataNote>
+
       {/* Signal rows */}
-      <SignalGroup title="TECHNICAL" signals={technicals} />
-      <SignalGroup title="VALUATION" signals={valuation} />
-      <SignalGroup title="FUNDAMENTALS" signals={fundamentals} />
+      <SignalGroup title="TECHNICAL" note="How price is behaving: its position against the 50-day and 200-day moving averages and the 52-week range. Describes the past trend, not the future." signals={technicals} />
+      <SignalGroup title="VALUATION" note="How expensive the stock is relative to earnings (P/E, forward P/E) and enterprise value to EBITDA. A high multiple can mean growth is expected or that the stock is pricey; compare with peers." signals={valuation} />
+      <SignalGroup title="FUNDAMENTALS" note="The health of the business itself: revenue and earnings growth, profit margins and debt relative to equity." signals={fundamentals} />
 
       {/* Analyst + Dividend + Revenue trend */}
       <div className="panel">
         <div className="panel-header"><span>ANALYSTS</span><span className="sub-header normal-case tracking-normal font-normal">{e?.number_of_analysts ?? "—"} covering</span></div>
         <div className="p-3 flex flex-col gap-2">
+          <div className="text-[11px] text-term-muted leading-relaxed pb-1">Average of professional analysts' recommendations and price targets. Useful to see market sentiment; analysts can be slow to change their view.</div>
           {analyst.map((s, i) => <SignalRow key={i} s={s} />)}
           <div className="mt-2 pt-2 border-t border-term-borderSoft grid grid-cols-2 gap-1 text-[11px]">
             <KV k="CURRENT" v={fmtPrice(e?.current_price ?? q?.last_price)} />
@@ -146,6 +152,7 @@ export function INTEL({ symbol }: { symbol: string }) {
       <div className="panel">
         <div className="panel-header"><span>DIVIDEND</span></div>
         <div className="p-3 flex flex-col gap-2">
+          <div className="text-[11px] text-term-muted leading-relaxed pb-1">Yield is the yearly dividend as a share of the price; payout is the share of profit paid out. A very high yield can mean the price has fallen, so check whether it is covered by earnings.</div>
           {shareholder.map((s, i) => <SignalRow key={i} s={s} />)}
           <div className="mt-2 pt-2 border-t border-term-borderSoft grid grid-cols-2 gap-1 text-[11px]">
             {/* metrics.dividend_yield is a decimal fraction (needs *100);
@@ -160,6 +167,7 @@ export function INTEL({ symbol }: { symbol: string }) {
       <div className="panel">
         <div className="panel-header"><span>SIZE & TREND</span></div>
         <div className="p-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+          <div className="col-span-2 text-term-muted leading-relaxed pb-1">Market cap is the total value of all shares; EV adds debt and subtracts cash. Beta measures how much the stock has moved relative to the market (above 1 = more volatile). The bars show annual revenue.</div>
           <KV k="MKT CAP" v={fmtVolume(m?.market_cap ?? p?.market_cap)} />
           <KV k="EV" v={fmtVolume(m?.enterprise_value)} />
           <KV k="SHARES" v={fmtVolume(p?.shares_outstanding)} />
@@ -223,7 +231,7 @@ export function INTEL({ symbol }: { symbol: string }) {
   );
 }
 
-function SignalGroup({ title, signals }: { title: string; signals: Signal[] }) {
+function SignalGroup({ title, note, signals }: { title: string; note?: string; signals: Signal[] }) {
   const t = tally(signals);
   return (
     <div className="panel">
@@ -238,6 +246,7 @@ function SignalGroup({ title, signals }: { title: string; signals: Signal[] }) {
         </span>
       </div>
       <div className="p-3 flex flex-col gap-2">
+        {note && <div className="text-[11px] text-term-muted leading-relaxed pb-1">{note}</div>}
         {signals.map((s, i) => <SignalRow key={i} s={s} />)}
       </div>
     </div>
