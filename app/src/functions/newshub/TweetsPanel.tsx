@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAccountTweets, isHighImpact } from "@/lib/getx";
 import { useTweetsSettings } from "@/store/tweetsStore";
+import { useFeatureLock } from "@/store/featureLockStore";
+import { LockedFeature } from "@/components/LockedFeature";
 import { fmtTime } from "@/lib/format";
 import { ExternalLink, RefreshCw, Settings, X } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -30,6 +32,9 @@ export function TweetsPanel() {
     () => (filter === "high-impact" ? data.filter((t) => isHighImpact(t.text, keywords)) : data),
     [data, filter, keywords]
   );
+
+  const locked = useFeatureLock((s) => s.locked.tweets);
+  if (locked) return <LockedFeature feature="tweets" />;
 
   return (
     <div className="h-full flex flex-col">

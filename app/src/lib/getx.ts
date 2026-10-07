@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api";
+import { applyFeatureLock } from "@/lib/featureLock";
 
 // ────── Tweets tab (GetXAPI) ──────
 // GetXAPI is a paid, per-call X/Twitter data reseller (Bearer-token REST API,
@@ -19,6 +20,7 @@ export const fetchAccountTweets = async (handles: string[]): Promise<Tweet[]> =>
   if (handles.length === 0) return [];
   const res = await fetch(`/getx-proxy/user-tweets?userNames=${encodeURIComponent(handles.join(","))}`);
   const body = await res.json().catch(() => ({}));
+  applyFeatureLock("tweets", res, body);
   if (!res.ok || !Array.isArray(body.results)) {
     throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load tweets");
   }
