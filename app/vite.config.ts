@@ -7,6 +7,8 @@ import { weatherProxyPlugin } from "./vite-plugins/weather";
 import { countryIntelProxyPlugin } from "./vite-plugins/countryIntel";
 import { aisProxyPlugin } from "./vite-plugins/ais";
 import { gpsJamProxyPlugin } from "./vite-plugins/gpsjam";
+import { proxyAuthPlugin } from "./vite-plugins/auth";
+import { COPILOT_LIMITS, CopilotRequestError, readCappedBody, sanitizeCopilotPayload } from "./vite-plugins/copilotGuard";
 
 const API_PREFIX = "/api";
 const API_TARGET = "http://127.0.0.1:6900";
@@ -731,7 +733,6 @@ function congressProxyPlugin(): Plugin {
 // as spotMetalsPlugin/getXApiProxyPlugin above. The model string is forced
 // here (not trusted from the request body) so it stays a one-line change.
 const COPILOT_MODEL = "claude-sonnet-5";
-const COPILOT_MAX_TOKENS = 2048;
 const ANTHROPIC_VERSION = "2023-06-01";
 
 function copilotProxyPlugin(apiKey: string | undefined): Plugin {
@@ -745,14 +746,27 @@ function copilotProxyPlugin(apiKey: string | undefined): Plugin {
       return;
     }
 
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
-    let payload: Record<string, unknown>;
+    let payload: ReturnType<typeof sanitizeCopilotPayload>;
     try {
-      payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    } catch {
+      const raw = await readCappedBody(req, COPILOT_LIMITS.maxBodyBytes);
+      let parsed: unknown;
+      try { parsed = JSON.parse(raw.toString("utf8")); }
+      catch { throw new CopilotRequestError(400, "invalid_request", "Malformed request body"); }
+      payload = sanitizeCopilotPayload(parsed);
+    } catch (err) {
+      if (err instanceof CopilotRequestError) {
+        res.statusCode = err.status;
+        res.end(JSON.stringify({ results: null, error: err.code, warnings: [{ message: err.message }] }));
+        // Let a still-uploading client finish (so it can read the 413) but discard the bytes and cut it off at a hard ceiling.
+        if (err.status === 413 && !req.destroyed) {
+          let drained = 0;
+          req.on("data", (c: Buffer) => { drained += c.length; if (drained > COPILOT_LIMITS.drainCeilingBytes) req.destroy(); });
+          req.on("error", () => { /* client went away */ });
+        }
+        return;
+      }
       res.statusCode = 400;
-      res.end(JSON.stringify({ results: null, warnings: [{ message: "Malformed request body" }] }));
+      res.end(JSON.stringify({ results: null, error: "invalid_request", warnings: [{ message: "Could not read the request body" }] }));
       return;
     }
 
@@ -764,7 +778,15 @@ function copilotProxyPlugin(apiKey: string | undefined): Plugin {
           "x-api-key": apiKey,
           "anthropic-version": ANTHROPIC_VERSION,
         },
-        body: JSON.stringify({ ...payload, model: COPILOT_MODEL, max_tokens: payload.max_tokens ?? COPILOT_MAX_TOKENS }),
+        // Explicit field allowlist: the client can never choose the model, raise
+        // max_tokens, or pass extra Anthropic params (stream, thinking, mcp_servers, ...).
+        body: JSON.stringify({
+          model: COPILOT_MODEL,
+          max_tokens: payload.maxTokens,
+          ...(payload.system !== undefined ? { system: payload.system } : {}),
+          messages: payload.messages,
+          ...(payload.tools?.length ? { tools: payload.tools } : {}),
+        }),
       });
       const json = await upstream.json();
       if (!upstream.ok) {
@@ -961,6 +983,8 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
+      // Must stay first: gates every proxy route below (see vite-plugins/auth.ts).
+      proxyAuthPlugin(env),
       apiCachePlugin(),
       cotProxyPlugin(),
       quantProxyPlugin(),
