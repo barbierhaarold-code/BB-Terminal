@@ -1,0 +1,14 @@
+.git
+.venv
+.ruff_cache
+.claude
+**/node_modules
+**/dist
+**/dist-server
+**/.env
+**/.env.*
+!**/.env.example
+!.env.production.example
+**/*.log
+**/*.png
+**/__pycache__

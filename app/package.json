@@ -6,13 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist-server/index.cjs",
+    "start": "node dist-server/index.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
     "@tanstack/react-query": "^5.59.0",
     "@types/leaflet": "^1.9.22",
     "clsx": "^2.1.1",
+    "connect": "^3.7.0",
     "d3-hierarchy": "^3.1.2",
     "h3-js": "^4.5.0",
     "leaflet": "^1.9.4",
@@ -20,15 +23,19 @@
     "lucide-react": "^0.454.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "sirv": "^3.0.2",
     "tailwind-merge": "^2.5.4",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/connect": "^3.4.38",
     "@types/d3-hierarchy": "^3.1.7",
+    "@types/node": "^26.6.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
+    "esbuild": "^0.28.2",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",

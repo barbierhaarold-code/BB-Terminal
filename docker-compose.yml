@@ -1,0 +1,102 @@
+# ABDEL KHADER production stack: Caddy (HTTPS) -> gateway -> OpenBB + quant (internal only).
+# Run:  docker compose --env-file .env.production up -d --build
+#
+# Exposure: ONLY caddy publishes ports (80, 443). gateway, openbb and quant have no
+# `ports:` at all, so nothing outside the Docker network can reach them.
+#   edge     : caddy <-> gateway
+#   backend  : gateway <-> openbb (has outbound internet for Yahoo etc.)
+#   quantnet : gateway <-> quant (internal: true = quant has NO internet access either)
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env.production}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.production}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge]
+    depends_on:
+      gateway: { condition: service_healthy }
+    logging: *logging
+
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/gateway/Dockerfile
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?set VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:?set VITE_SUPABASE_PUBLISHABLE_KEY}
+    restart: unless-stopped
+    expose: ["8080"]
+    environment:
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+      COPILOT_ALLOWED_EMAILS: ${COPILOT_ALLOWED_EMAILS:-}
+      TWEETS_ALLOWED_EMAILS: ${TWEETS_ALLOWED_EMAILS:-}
+      AIS_ALLOWED_EMAILS: ${AIS_ALLOWED_EMAILS:-}
+      TWELVE_DATA_API_KEY: ${TWELVE_DATA_API_KEY:-}
+      GETX_API_KEY: ${GETX_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+      AISSTREAM_API_KEY: ${AISSTREAM_API_KEY:-}
+      OPENBB_URL: http://openbb:6900
+      QUANT_URL: http://quant:6901
+    networks: [edge, backend, quantnet]
+    depends_on:
+      openbb: { condition: service_healthy }
+      quant: { condition: service_healthy }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  openbb:
+    build:
+      context: .
+      dockerfile: docker/openbb/Dockerfile
+    restart: unless-stopped
+    expose: ["6900"]
+    environment:
+      # OpenBB reads provider credentials from env (FMP_API_KEY -> fmp_api_key).
+      FMP_API_KEY: ${FMP_API_KEY:-}
+    volumes:
+      - openbb-data:/home/openbb/OpenBBUserData   # persistent provider cache (SEC, etc.)
+    networks: [backend]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  quant:
+    build:
+      context: .
+      dockerfile: docker/quant/Dockerfile
+    restart: unless-stopped
+    expose: ["6901"]
+    networks: [quantnet]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+networks:
+  edge: {}
+  backend: {}
+  quantnet:
+    internal: true
+
+volumes:
+  openbb-data: {}
+  caddy-data: {}
+  caddy-config: {}

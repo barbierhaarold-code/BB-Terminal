@@ -48,3 +48,5 @@ user_settings.json
 # Creator's private notes
 VIDEO_SCRIPT.md
 *.private.md
+dist-server/
+.env.production
