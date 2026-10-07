@@ -33,3 +33,11 @@ export const useTheme = create<ThemeState>()(
 
 /** Narrow selector — components that only need the current mode string. */
 export const useThemeMode = () => useTheme((s) => s.mode);
+
+// Apply `data-theme` from the store itself (not from a React effect) so it also works on the
+// login page, where App is not mounted. The inline script in index.html covers first paint.
+if (typeof document !== "undefined") {
+  const apply = (m: ThemeMode) => document.documentElement.setAttribute("data-theme", m);
+  apply(useTheme.getState().mode);
+  useTheme.subscribe((s) => apply(s.mode));
+}
