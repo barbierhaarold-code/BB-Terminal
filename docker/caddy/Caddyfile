@@ -1,0 +1,21 @@
+# Caddy: automatic HTTPS (Let's Encrypt) in front of the gateway.
+# DOMAIN and ACME_EMAIL come from .env.production via docker-compose.yml.
+{
+	email {$ACME_EMAIL}
+	# Only ports 80 and 443/tcp are exposed; no HTTP/3 (would need 443/udp).
+	servers {
+		protocols h1 h2
+	}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 10MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy gateway:8080
+}

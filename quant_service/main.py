@@ -70,4 +70,6 @@ def health() -> dict[str, bool]:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=6901)
+    import os
+    # Loopback by default (local dev unchanged); the Docker image sets QUANT_HOST=0.0.0.0 on its internal network.
+    uvicorn.run(app, host=os.environ.get("QUANT_HOST", "127.0.0.1"), port=6901)
