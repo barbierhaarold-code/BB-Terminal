@@ -40,8 +40,10 @@ clone of any existing product.
    orange-and-black visual identity, its logo, or its marketing copy. If a prompt
    references "the QFI-style X screen," that means "a screen that shows the same
    category of information," not "recreate their exact pixels."
-3. **This is a single-user personal tool.** No auth walls, no payment/subscription
-   logic, no multi-tenant concerns. Keep it simple.
+3. **This is a personal tool shared with a small invited circle.** The login gate is
+   intentional: invite-only Supabase auth (no public signup; users are invited from the
+   Supabase dashboard). No payment/subscription logic, no multi-tenant concerns. Keep
+   it simple.
 4. **Every new data panel needs three states, minimum:** loading, empty/no-data,
    and error — none of which crash the tab or leave a blank white screen.
 5. **Check what's already free before reaching for a new provider.** Before
