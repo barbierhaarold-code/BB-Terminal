@@ -20,6 +20,8 @@ interface AuthState {
   notice: string | null;
   init: () => void;
   signOut: () => Promise<void>;
+  /** The server rejected our token: end the local session and show `message` on the login page. */
+  expireSession: (message: string) => Promise<void>;
   passwordSet: () => void;
 }
 
@@ -81,6 +83,13 @@ export const useAuth = create<AuthState>((set, get) => ({
     // local scope: end this browser's session only, not the user's other devices.
     await supabase?.auth.signOut({ scope: "local" });
     set({ session: null, email: null, status: "signedOut", notice: null });
+  },
+
+  async expireSession(message) {
+    if (get().status === "signedOut") return; // several in-flight calls may report the same failure
+    // State first, so the SIGNED_OUT event that follows keeps this message instead of the generic one.
+    set({ session: null, email: null, status: "signedOut", notice: message });
+    await supabase?.auth.signOut({ scope: "local" });
   },
 
   passwordSet() {
