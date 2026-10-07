@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  createChart, ColorType, LineStyle, CrosshairMode,
+  createChart, LineStyle, CrosshairMode,
   type IChartApi, type ISeriesApi, type UTCTimestamp,
 } from "lightweight-charts";
 import { useQuery } from "@tanstack/react-query";
 import { fetchHistorical, type Candle } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { fmtPrice } from "@/lib/format";
+import { useChartTheme, baseChartOptions, crosshairOptions, type ChartPalette } from "@/lib/chartTheme";
 import { TIMEFRAMES, resampleCandles, sma, legendStats, type Timeframe, type LegendStats } from "./gp/chartMath";
 
 type ChartType = "candle" | "line";
 interface SmaToggles { 50: boolean; 100: boolean; 200: boolean; }
-const SMA_COLORS: Record<keyof SmaToggles, string> = { 50: "#22ccee", 100: "#cd93ff", 200: "#22ee22" };
+const smaColors = (ct: ChartPalette): Record<keyof SmaToggles, string> =>
+  ({ 50: ct.cyan, 100: ct.accentBright, 200: ct.up });
 
 export function GP({ symbol }: { symbol: string }) {
   const [tf, setTf] = useState<Timeframe>(TIMEFRAMES[7]); // 1D default
@@ -19,6 +21,7 @@ export function GP({ symbol }: { symbol: string }) {
   const [smaOn, setSmaOn] = useState<SmaToggles>({ 50: false, 100: false, 200: false });
   const [gridOn, setGridOn] = useState(true);
   const [watermarkOn, setWatermarkOn] = useState(true);
+  const ct = useChartTheme();
 
   const startDate = useMemo(
     () => new Date(Date.now() - tf.days * 864e5).toISOString().slice(0, 10),
@@ -46,14 +49,14 @@ export function GP({ symbol }: { symbol: string }) {
   // Build the chart shell once.
   useEffect(() => {
     if (!containerRef.current) return;
+    const base = baseChartOptions(ct);
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8a8a8a", fontFamily: "IBM Plex Mono, monospace", fontSize: 11 },
-      rightPriceScale: { borderColor: "#2a2a2a" },
-      timeScale: { borderColor: "#2a2a2a", timeVisible: true, secondsVisible: false },
+      ...base,
+      timeScale: { ...base.timeScale, timeVisible: true, secondsVisible: false },
       crosshair: {
         mode: CrosshairMode.Normal,
-        vertLine: { color: "#b45cff", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#b45cff" },
-        horzLine: { color: "#b45cff", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#b45cff" },
+        vertLine: { ...crosshairOptions(ct).vertLine, width: 1, style: LineStyle.Dashed },
+        horzLine: { ...crosshairOptions(ct).horzLine, width: 1, style: LineStyle.Dashed },
       },
       autoSize: true,
     });
@@ -70,23 +73,36 @@ export function GP({ symbol }: { symbol: string }) {
       chartRef.current = null; mainSeriesRef.current = null; volumeSeriesRef.current = null;
       smaSeriesRef.current = { 50: null, 100: null, 200: null };
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Rebuild the main series when the chart type changes (candlestick <-> line
-  // need different series types — lightweight-charts has no "convert" call).
+  // Re-theme the chart shell in place when the light/dark toggle flips.
+  useEffect(() => {
+    chartRef.current?.applyOptions({
+      ...baseChartOptions(ct),
+      crosshair: {
+        vertLine: crosshairOptions(ct).vertLine,
+        horzLine: crosshairOptions(ct).horzLine,
+      },
+    });
+  }, [ct]);
+
+  // Rebuild the main series when the chart type — or the theme — changes
+  // (candlestick <-> line need different series types; lightweight-charts has
+  // no "convert" call, and this is also the cleanest place to restyle it).
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     if (mainSeriesRef.current) chart.removeSeries(mainSeriesRef.current);
     mainSeriesRef.current = chartType === "candle"
       ? chart.addCandlestickSeries({
-          upColor: "#22ee22", downColor: "#ff3b3b", borderVisible: false,
-          wickUpColor: "#22ee22", wickDownColor: "#ff3b3b",
+          upColor: ct.up, downColor: ct.down, borderVisible: false,
+          wickUpColor: ct.up, wickDownColor: ct.down,
         })
-      : chart.addLineSeries({ color: "#b45cff", lineWidth: 2, priceLineVisible: false });
+      : chart.addLineSeries({ color: ct.accent, lineWidth: 2, priceLineVisible: false });
     if (candles.length) setSeriesData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartType]);
+  }, [chartType, ct]);
 
   function setSeriesData() {
     const series = mainSeriesRef.current;
@@ -105,7 +121,7 @@ export function GP({ symbol }: { symbol: string }) {
     setSeriesData();
     volumeSeriesRef.current?.setData(candles.map((c) => ({
       time: toTime(c.date), value: c.volume ?? 0,
-      color: c.close >= c.open ? "rgba(34,238,34,0.5)" : "rgba(255,59,59,0.5)",
+      color: c.close >= c.open ? ct.upFill : ct.downFill,
     })));
     // Container width isn't always settled on the very first paint (tab
     // restored from a persisted workspace, autoSize's ResizeObserver hasn't
@@ -116,7 +132,7 @@ export function GP({ symbol }: { symbol: string }) {
     const raf = requestAnimationFrame(() => chartRef.current?.timeScale().fitContent());
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candles, chartType]);
+  }, [candles, chartType, ct]);
 
   // SMA overlays — add/remove series per toggle, refresh data with candles.
   useEffect(() => {
@@ -127,13 +143,15 @@ export function GP({ symbol }: { symbol: string }) {
       let series = smaSeriesRef.current[period];
       if (on && !series) {
         series = chart.addLineSeries({
-          color: SMA_COLORS[period], lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
+          color: smaColors(ct)[period], lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
           title: `SMA${period}`,
         });
         smaSeriesRef.current[period] = series;
       } else if (!on && series) {
         chart.removeSeries(series);
         smaSeriesRef.current[period] = null;
+      } else if (on && series) {
+        series.applyOptions({ color: smaColors(ct)[period] });
       }
       if (on && series) {
         const values = sma(candles, Number(period));
@@ -145,25 +163,25 @@ export function GP({ symbol }: { symbol: string }) {
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [smaOn, candles]);
+  }, [smaOn, candles, ct]);
 
   // Grid + watermark toggles.
   useEffect(() => {
     chartRef.current?.applyOptions({
       grid: {
-        vertLines: { visible: gridOn, color: "rgba(42,42,42,0.4)" },
-        horzLines: { visible: gridOn, color: "rgba(42,42,42,0.4)" },
+        vertLines: { visible: gridOn, color: ct.grid },
+        horzLines: { visible: gridOn, color: ct.grid },
       },
     });
-  }, [gridOn]);
+  }, [gridOn, ct]);
   useEffect(() => {
     chartRef.current?.applyOptions({
       watermark: {
-        visible: watermarkOn, text: symbol, color: "rgba(208,208,208,0.06)",
+        visible: watermarkOn, text: symbol, color: ct.watermark,
         fontSize: 64, horzAlign: "center", vertAlign: "center",
       },
     });
-  }, [watermarkOn, symbol]);
+  }, [watermarkOn, symbol, ct]);
 
   // Legend box — recompute over whatever's actually on screen, not the
   // whole fetched series, so it tracks pan/zoom like the QFI reference.
@@ -210,7 +228,7 @@ export function GP({ symbol }: { symbol: string }) {
           <div className="flex items-center gap-1">
             {([50, 100, 200] as const).map((p) => (
               <button key={p} onClick={() => setSmaOn((s) => ({ ...s, [p]: !s[p] }))}
-                style={smaOn[p] ? { borderColor: SMA_COLORS[p], color: SMA_COLORS[p] } : undefined}
+                style={smaOn[p] ? { borderColor: smaColors(ct)[p], color: smaColors(ct)[p] } : undefined}
                 className={cn("px-1.5 py-0.5 border", !smaOn[p] && "border-transparent text-term-muted hover:text-term-text")}>
                 SMA{p}
               </button>

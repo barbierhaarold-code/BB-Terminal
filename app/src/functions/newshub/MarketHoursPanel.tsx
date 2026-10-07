@@ -40,7 +40,7 @@ export function MarketHoursPanel() {
               <span
                 className={cn(
                   "w-1.5 h-1.5 rounded-full shrink-0",
-                  s.phase === "open" ? "bg-term-green shadow-[0_0_6px_rgba(34,238,34,0.7)]"
+                  s.phase === "open" ? "bg-term-green shadow-[0_0_6px_rgb(var(--term-green)/0.7)]"
                     : s.phase === "pre" || s.phase === "after" ? "bg-term-amber"
                     : "bg-term-muted"
                 )}

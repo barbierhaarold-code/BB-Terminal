@@ -148,7 +148,7 @@ function FxCard({ inst, cell, size = "sm" }: {
   const pts = vals.length > 1
     ? vals.map((v, i) => `${(i / (vals.length - 1)) * 100},${32 - ((v - min) / (max - min || 1)) * 28}`).join(" ")
     : "";
-  const stroke = dir === "up" ? "#22ee22" : dir === "down" ? "#ff3b3b" : "#b45cff";
+  const stroke = dir === "up" ? "rgb(var(--term-green))" : dir === "down" ? "rgb(var(--term-red))" : "rgb(var(--term-amber))";
 
   return (
     <div className={cn("panel", size === "lg" && "h-full")}>
@@ -158,7 +158,7 @@ function FxCard({ inst, cell, size = "sm" }: {
           {inst.pair}
           {stale && (
             <span title={`Data ${age != null ? fmtAge(age) : "?"} old — feed appears stalled`}
-              className="w-1.5 h-1.5 rounded-full bg-term-red shadow-[0_0_4px_rgba(255,59,59,0.8)]" />
+              className="w-1.5 h-1.5 rounded-full bg-term-red shadow-[0_0_4px_rgb(var(--term-red)/0.8)]" />
           )}
         </span>
         <span className={cn("num", size === "lg" ? "text-[13px]" : "text-[11px]", dir === "up" && "up", dir === "down" && "down")}>

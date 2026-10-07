@@ -52,7 +52,7 @@ export function TweetsPanel() {
           </button>
         ))}
         <span className="ml-auto flex items-center gap-1 text-term-muted">
-          <span className="w-1.5 h-1.5 rounded-full bg-term-green shadow-[0_0_6px_rgba(34,238,34,0.7)]" />
+          <span className="w-1.5 h-1.5 rounded-full bg-term-green shadow-[0_0_6px_rgb(var(--term-green)/0.7)]" />
           poll {pollMinutes}m · {accounts.length} accounts
         </span>
         <button onClick={() => refetch()} title="Refresh" className="text-term-muted hover:text-term-amber">

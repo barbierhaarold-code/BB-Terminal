@@ -36,7 +36,7 @@ function Spark({ values, up }: { values: number[]; up: boolean }) {
   }).join(" ");
   return (
     <svg viewBox="0 0 100 32" preserveAspectRatio="none" className="w-full h-8">
-      <polyline fill="none" stroke={up ? "#22ee22" : "#ff3b3b"} strokeWidth="1.5" points={pts} />
+      <polyline fill="none" stroke={up ? "rgb(var(--term-green))" : "rgb(var(--term-red))"} strokeWidth="1.5" points={pts} />
     </svg>
   );
 }

@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, type IChartApi, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import { createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import { fmtPct } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { useChartTheme, baseChartOptions } from "@/lib/chartTheme";
 import { usePortfolioEquityCurve } from "./usePortfolioEquityCurve";
 
 function toTime(dateIso: string): UTCTimestamp {
@@ -10,6 +11,7 @@ function toTime(dateIso: string): UTCTimestamp {
 
 export function PerformanceChart() {
   const { positions, earliestDate, portfolioSeries, benchSeries, isLoading, isError, benchmark } = usePortfolioEquityCurve();
+  const ct = useChartTheme();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -18,19 +20,25 @@ export function PerformanceChart() {
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const base = baseChartOptions(ct);
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8a8a8a", fontFamily: "IBM Plex Mono, monospace", fontSize: 11 },
-      rightPriceScale: { borderColor: "#2a2a2a" },
-      timeScale: { borderColor: "#2a2a2a", timeVisible: false },
-      grid: { vertLines: { color: "rgba(42,42,42,0.4)" }, horzLines: { color: "rgba(42,42,42,0.4)" } },
+      ...base,
+      timeScale: { ...base.timeScale, timeVisible: false },
       autoSize: true,
     });
-    portSeriesRef.current = chart.addLineSeries({ color: "#b45cff", lineWidth: 2, title: "Portfolio", priceLineVisible: false });
-    benchSeriesRef.current = chart.addLineSeries({ color: "#8a8a8a", lineWidth: 1, title: benchmark, priceLineVisible: false });
+    portSeriesRef.current = chart.addLineSeries({ color: ct.accent, lineWidth: 2, title: "Portfolio", priceLineVisible: false });
+    benchSeriesRef.current = chart.addLineSeries({ color: ct.neutral, lineWidth: 1, title: benchmark, priceLineVisible: false });
     chartRef.current = chart;
     return () => { chart.remove(); chartRef.current = null; portSeriesRef.current = null; benchSeriesRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-theme in place when the light/dark toggle flips.
+  useEffect(() => {
+    chartRef.current?.applyOptions(baseChartOptions(ct));
+    portSeriesRef.current?.applyOptions({ color: ct.accent });
+    benchSeriesRef.current?.applyOptions({ color: ct.neutral });
+  }, [ct]);
 
   useEffect(() => {
     if (!portSeriesRef.current || !benchSeriesRef.current) return;
@@ -45,8 +53,8 @@ export function PerformanceChart() {
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-4 flex-wrap px-3 py-1.5 border-b border-term-border bg-term-panel2 text-[11px]">
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: "#b45cff" }} /> Portfolio <span className={cn("num", (portReturn ?? 0) >= 0 ? "up" : "down")}>{fmtPct(portReturn)}</span></span>
-        <span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: "#8a8a8a" }} /> {benchmark} <span className={cn("num", (benchReturn ?? 0) >= 0 ? "up" : "down")}>{fmtPct(benchReturn)}</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: ct.accent }} /> Portfolio <span className={cn("num", (portReturn ?? 0) >= 0 ? "up" : "down")}>{fmtPct(portReturn)}</span></span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2" style={{ background: ct.neutral }} /> {benchmark} <span className={cn("num", (benchReturn ?? 0) >= 0 ? "up" : "down")}>{fmtPct(benchReturn)}</span></span>
         <span className="ml-auto text-term-muted">since {earliestDate || "—"} · 100 = cost basis</span>
       </div>
       <div className="relative flex-1 min-h-0">

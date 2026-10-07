@@ -112,25 +112,25 @@ export function CURV() {
           {/* grid */}
           {TENORS.map((t) => (
             <g key={t.k}>
-              <line x1={xFor(t.years)} y1={padT} x2={xFor(t.years)} y2={H - padB} stroke="#1f1f1f" />
-              <text x={xFor(t.years)} y={H - padB + 14} fontSize="9" textAnchor="middle" fill="#6e6e6e">{t.label}</text>
+              <line x1={xFor(t.years)} y1={padT} x2={xFor(t.years)} y2={H - padB} stroke="rgb(var(--term-border-soft))" />
+              <text x={xFor(t.years)} y={H - padB + 14} fontSize="9" textAnchor="middle" fill="rgb(var(--term-muted))">{t.label}</text>
             </g>
           ))}
           {[minV, (minV + maxV) / 2, maxV].map((v, i) => (
             <g key={i}>
-              <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} stroke="#1f1f1f" />
-              <text x={padL - 4} y={yFor(v) + 3} fontSize="9" textAnchor="end" fill="#6e6e6e">{(v * 100).toFixed(2)}</text>
+              <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} stroke="rgb(var(--term-border-soft))" />
+              <text x={padL - 4} y={yFor(v) + 3} fontSize="9" textAnchor="end" fill="rgb(var(--term-muted))">{(v * 100).toFixed(2)}</text>
             </g>
           ))}
           {/* month-ago curve */}
-          {month && <polyline fill="none" stroke="#555" strokeWidth="1" strokeDasharray="3,3" points={points(month)} />}
+          {month && <polyline fill="none" stroke="rgb(var(--term-muted))" strokeWidth="1" strokeDasharray="3,3" points={points(month)} />}
           {/* week-ago curve */}
-          {week && <polyline fill="none" stroke="#a55f00" strokeWidth="1.2" points={points(week)} />}
+          {week && <polyline fill="none" stroke="rgb(var(--term-amber-dim))" strokeWidth="1.2" points={points(week)} />}
           {/* today curve */}
-          <polyline fill="none" stroke="#b45cff" strokeWidth="2" points={points(today)} />
+          <polyline fill="none" stroke="rgb(var(--term-amber))" strokeWidth="2" points={points(today)} />
           {TENORS.map((t) => {
             const v = today[t.k] as number | undefined;
-            return v != null ? <circle key={t.k} cx={xFor(t.years)} cy={yFor(v)} r="3" fill="#ffaa33" /> : null;
+            return v != null ? <circle key={t.k} cx={xFor(t.years)} cy={yFor(v)} r="3" fill="rgb(var(--term-amber))" /> : null;
           })}
         </svg>
         <div className="absolute top-2 right-3 text-[10px] uppercase tracking-widest text-term-muted flex items-center gap-3">

@@ -1,21 +1,33 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  createChart, ColorType, LineStyle,
+  createChart, LineStyle,
   type IChartApi, type ISeriesApi, type UTCTimestamp,
 } from "lightweight-charts";
 import { useQueries } from "@tanstack/react-query";
 import { fetchHistorical, type Candle } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { fmtPct } from "@/lib/format";
+import { useChartTheme, baseChartOptions, crosshairOptions, type ChartPalette } from "@/lib/chartTheme";
 
 // Tracking ETFs for the four major US indices (ETFs trade intraday, so the
 // "Today" range works; the indices themselves are illiquid intraday via yfinance).
 const SERIES = [
-  { sym: "SPY", name: "S&P 500",   color: "#cd93ff" },
-  { sym: "QQQ", name: "Nasdaq 100", color: "#22ccee" },
-  { sym: "DIA", name: "Dow 30",    color: "#22ee22" },
-  { sym: "IWM", name: "Russell 2k", color: "#ffb020" },
+  { sym: "SPY", name: "S&P 500" },
+  { sym: "QQQ", name: "Nasdaq 100" },
+  { sym: "DIA", name: "Dow 30" },
+  { sym: "IWM", name: "Russell 2k" },
 ];
+
+/** Distinct per-index line colours, theme-aware. IWM gets `series4` (an
+ * amber-gold that isn't the locked violet accent), legible on both grounds. */
+function seriesColor(ct: ChartPalette, sym: string): string {
+  switch (sym) {
+    case "SPY": return ct.accentBright;
+    case "QQQ": return ct.cyan;
+    case "DIA": return ct.up;
+    default:    return ct.series4;
+  }
+}
 
 interface RangeDef { label: string; days: number; interval: string; ytd?: boolean; }
 const RANGES: RangeDef[] = [
@@ -60,6 +72,8 @@ export function NormalizedChart() {
     })),
   });
 
+  const ct = useChartTheme();
+
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<Record<string, ISeriesApi<"Line">>>({});
@@ -67,27 +81,41 @@ export function NormalizedChart() {
   // Build chart once.
   useEffect(() => {
     if (!containerRef.current) return;
+    const base = baseChartOptions(ct);
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8a8a8a", fontFamily: "IBM Plex Mono, monospace", fontSize: 11 },
-      rightPriceScale: { borderColor: "#2a2a2a" },
-      timeScale: { borderColor: "#2a2a2a", timeVisible: false },
-      grid: { vertLines: { color: "rgba(42,42,42,0.4)" }, horzLines: { color: "rgba(42,42,42,0.4)" } },
+      ...base,
+      timeScale: { ...base.timeScale, timeVisible: false },
       crosshair: {
-        vertLine: { color: "#b45cff", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#b45cff" },
-        horzLine: { color: "#b45cff", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#b45cff" },
+        vertLine: { ...crosshairOptions(ct).vertLine, width: 1, style: LineStyle.Dashed },
+        horzLine: { ...crosshairOptions(ct).horzLine, width: 1, style: LineStyle.Dashed },
       },
       autoSize: true,
     });
     // Zero baseline reference.
     for (const s of SERIES) {
       seriesRef.current[s.sym] = chart.addLineSeries({
-        color: s.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
+        color: seriesColor(ct, s.sym), lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
         priceFormat: { type: "custom", formatter: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%` },
       });
     }
     chartRef.current = chart;
     return () => { chart.remove(); chartRef.current = null; seriesRef.current = {}; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-theme in place on the light/dark toggle.
+  useEffect(() => {
+    chartRef.current?.applyOptions({
+      ...baseChartOptions(ct),
+      crosshair: {
+        vertLine: crosshairOptions(ct).vertLine,
+        horzLine: crosshairOptions(ct).horzLine,
+      },
+    });
+    for (const s of SERIES) {
+      seriesRef.current[s.sym]?.applyOptions({ color: seriesColor(ct, s.sym) });
+    }
+  }, [ct]);
 
   // Push data whenever any query resolves.
   useEffect(() => {
@@ -122,7 +150,7 @@ export function NormalizedChart() {
               <button key={s.sym} onClick={() => setVisible((v) => ({ ...v, [s.sym]: !v[s.sym] }))}
                 className={cn("flex items-center gap-1.5 text-[10px] uppercase tracking-wider",
                   visible[s.sym] ? "opacity-100" : "opacity-35")}>
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: s.color }} />
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: seriesColor(ct, s.sym) }} />
                 <span className="text-term-heading">{s.name}</span>
                 {last != null && (
                   <span className={cn("num", last >= 0 ? "up" : "down")}>{fmtPct(last)}</span>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, LogOut } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { parseCommand, FUNCTIONS } from "@/lib/functions";
 import { useWorkspace } from "@/store/workspaceStore";
 import { useCopilot } from "@/store/copilotStore";
@@ -58,7 +59,7 @@ export function CommandBar() {
   return (
     <div className="flex flex-wrap items-center min-h-10 bg-term-panel border-b border-term-border px-3 py-1.5 sm:py-0 gap-2 sm:gap-4">
       <div className="flex items-center gap-2 select-none shrink-0">
-        <span className="w-1.5 h-1.5 bg-term-amber shadow-[0_0_6px_rgba(180,92,255,0.9)]" />
+        <span className="w-1.5 h-1.5 bg-term-amber shadow-[0_0_6px_rgb(var(--term-amber)/0.9)]" />
         <span className="text-term-amber font-bold tracking-[0.3em] text-[11px]">ABDEL KHADER</span>
       </div>
 
@@ -156,6 +157,7 @@ export function CommandBar() {
       {err && <span className="text-term-red text-[10px] uppercase tracking-[0.18em] shrink-0">{err}</span>}
 
       <div className="flex items-center gap-2 shrink-0 ml-auto">
+        <ThemeToggle />
         {authEmail && <span title={authEmail} className="hidden md:inline text-term-muted text-[10px] tracking-wider max-w-[200px] truncate">{authEmail}</span>}
         <button
           onClick={() => void signOut()}

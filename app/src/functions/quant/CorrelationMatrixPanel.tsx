@@ -17,7 +17,7 @@ const LOOKBACKS = [
 function cellStyle(r: number | undefined) {
   if (r == null) return {};
   const alpha = Math.min(1, Math.abs(r)) * 0.55;
-  const color = r >= 0 ? `rgba(34,238,34,${alpha})` : `rgba(255,59,59,${alpha})`;
+  const color = r >= 0 ? `rgb(var(--term-green) / ${alpha})` : `rgb(var(--term-red) / ${alpha})`;
   return { backgroundColor: color };
 }
 

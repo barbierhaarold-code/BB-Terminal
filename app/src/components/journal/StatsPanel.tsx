@@ -58,11 +58,11 @@ function EquityCurve({ points }: { points: { date: string; equity: number }[] })
   }).join(" ");
   const zeroY = h - ((0 - min) / range) * h;
   const last = values[values.length - 1];
-  const stroke = last >= 0 ? "#22ee22" : "#ff3b3b";
+  const stroke = last >= 0 ? "rgb(var(--term-green))" : "rgb(var(--term-red))";
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-24" preserveAspectRatio="none">
-      <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke="rgba(255,255,255,0.15)" strokeWidth="0.5" />
+      <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke="rgb(var(--term-border))" strokeWidth="0.5" />
       <polyline fill="none" stroke={stroke} strokeWidth="1" points={pts} vectorEffect="non-scaling-stroke" />
     </svg>
   );

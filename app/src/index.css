@@ -2,6 +2,68 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens. Every `term-*` Tailwind colour resolves to one of these CSS
+ * variables (space-separated RGB triplet so Tailwind's `/opacity` modifiers
+ * keep working). `:root` is the default DARK theme; `[data-theme="light"]`
+ * overrides only the background / surface / border / text tokens.
+ *
+ * LOCKED BRANDING — do NOT vary between themes:
+ *   --term-amber / --term-amber-dim / --term-amber-bright  (violet #b45cff family)
+ * They are declared once on :root and never overridden below.
+ */
+:root {
+  /* backgrounds / surfaces */
+  --term-bg: 10 10 10;          /* #0a0a0a */
+  --term-bg2: 17 17 17;         /* #111111 */
+  --term-panel: 20 20 20;       /* #141414 */
+  --term-panel2: 26 26 26;      /* #1a1a1a */
+  --term-border: 42 42 42;      /* #2a2a2a */
+  --term-border-soft: 31 31 31; /* #1f1f1f */
+
+  /* violet accent — LOCKED, identical in both themes */
+  --term-amber: 180 92 255;        /* #b45cff */
+  --term-amber-dim: 109 46 166;    /* #6d2ea6 */
+  --term-amber-bright: 205 147 255;/* #cd93ff */
+
+  /* semantic foreground colours */
+  --term-green: 34 238 34;     /* #22ee22 */
+  --term-green-dim: 18 136 18; /* #128812 */
+  --term-red: 255 59 59;       /* #ff3b3b */
+  --term-red-dim: 154 20 20;   /* #9a1414 */
+  --term-cyan: 34 204 238;     /* #22ccee */
+
+  /* text */
+  --term-muted: 110 110 110;   /* #6e6e6e */
+  --term-text: 208 208 208;    /* #d0d0d0 */
+  --term-heading: 240 240 240; /* #f0f0f0 */
+}
+
+:root[data-theme="light"] {
+  /* backgrounds / surfaces — light paper stack */
+  --term-bg: 244 244 246;      /* #f4f4f6 */
+  --term-bg2: 255 255 255;     /* #ffffff */
+  --term-panel: 255 255 255;   /* #ffffff */
+  --term-panel2: 238 238 242;  /* #eeeef2 */
+  --term-border: 205 205 212;  /* #cdcdd4 */
+  --term-border-soft: 224 224 230; /* #e0e0e6 */
+
+  /* --term-amber* intentionally NOT overridden (locked violet) */
+
+  /* semantic foreground colours — darkened for contrast on light paper,
+     hue preserved */
+  --term-green: 13 128 43;     /* #0d802b */
+  --term-green-dim: 150 205 165;
+  --term-red: 200 30 30;       /* #c81e1e */
+  --term-red-dim: 226 160 160;
+  --term-cyan: 14 116 144;     /* #0e7490 */
+
+  /* text */
+  --term-muted: 113 113 122;   /* #71717a */
+  --term-text: 39 39 46;       /* #27272e */
+  --term-heading: 15 15 20;    /* #0f0f14 */
+}
+
 @layer base {
   html, body, #root { height: 100%; }
   body {
@@ -11,7 +73,7 @@
     letter-spacing: 0.01em;
   }
   :focus-visible { @apply outline-none; }
-  ::selection { background: rgba(180,92,255,0.25); color: #fff; }
+  ::selection { background: rgb(var(--term-amber) / 0.25); color: #fff; }
 }
 
 @layer components {
@@ -40,14 +102,14 @@
 
   .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
   .scroll-thin::-webkit-scrollbar-track { background: transparent; }
-  .scroll-thin::-webkit-scrollbar-thumb { background: #2a2a2a; }
-  .scroll-thin::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: rgb(var(--term-border)); }
+  .scroll-thin::-webkit-scrollbar-thumb:hover { background: rgb(var(--term-muted)); }
 
   .caret {
     display: inline-block;
     width: 8px;
     height: 14px;
-    background: #b45cff;
+    background: rgb(var(--term-amber));
     margin-left: 2px;
     animation: blink 1.1s steps(1) infinite;
     vertical-align: -2px;
