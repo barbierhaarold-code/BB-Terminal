@@ -47,7 +47,7 @@ Use the provided tools whenever a question needs current numbers — spot price,
 
 export function currentViewLabel(view: CurrentView): string {
   switch (view) {
-    case "forex_scalper": return "the Forex/Gold Scalper module";
+    case "forex_scalper": return "the Forex Center module (spot gold, silver, FX sessions)";
     case "track_record": return "the Track Record (trading journal) module";
     case "news_hub": return "the News Hub module";
     case "portfolio": return "the Portfolio Tracker module";
