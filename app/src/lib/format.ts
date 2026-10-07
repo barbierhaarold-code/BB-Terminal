@@ -36,7 +36,10 @@ export function fmtPctFromDecimal(v: number | null | undefined, digits = 2) {
 export function fmtDate(iso?: string) {
   if (!iso) return "—";
   try {
-    const d = new Date(iso);
+    // Date-only strings ("2026-10-05") parse as UTC midnight, which shows the
+    // previous day west of UTC — build them as a local date instead.
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
     return d.toLocaleDateString(undefined, { year: "2-digit", month: "short", day: "2-digit" });
   } catch { return iso; }
 }
