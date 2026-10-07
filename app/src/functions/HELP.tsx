@@ -1,16 +1,26 @@
 import { FUNCTIONS } from "@/lib/functions";
 import { useWorkspace } from "@/store/workspaceStore";
+import { useTutorial } from "@/store/tutorialStore";
 
 export function HELP() {
   const openTab = useWorkspace((s) => s.openTab);
   const activeSymbol = useWorkspace((s) => s.activeSymbol);
+  const startTutorial = useTutorial((s) => s.start);
 
   const groups = Array.from(new Set(FUNCTIONS.map((f) => f.group)));
 
   return (
     <div className="p-4 flex flex-col gap-5 text-[12px]">
       <div>
-        <div className="text-term-amber text-[11px] tracking-[0.25em] font-bold mb-1">WELCOME TO ABDEL KHADER</div>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <div className="text-term-amber text-[11px] tracking-[0.25em] font-bold">WELCOME TO ABDEL KHADER</div>
+          <button
+            onClick={startTutorial}
+            className="px-2 py-1 border border-term-amber text-term-amberBright text-[10px] uppercase tracking-wider hover:bg-term-amber hover:text-term-bg transition-colors"
+          >
+            Replay tutorial
+          </button>
+        </div>
         <div className="text-term-text">
           Type a function code in the command bar above, optionally prefixed with a ticker, then press
           <span className="text-term-amber font-bold mx-1">&lt;GO&gt;</span>
