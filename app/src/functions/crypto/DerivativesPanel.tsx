@@ -5,7 +5,7 @@ import { fmtPrice, fmtVolume, fmtPct } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
 export function DerivativesPanel() {
-  const { data, isLoading, error } = useQuery({
+  const { data, isPending, error } = useQuery({
     queryKey: ["crypto-derivatives"],
     queryFn: fetchDerivatives,
     staleTime: 30_000,
@@ -19,7 +19,7 @@ export function DerivativesPanel() {
       <SectionTitle>DERIVATIVES — MAJOR USDT PERPETUALS</SectionTitle>
       <div className="sub-header">BINANCE FUTURES PUBLIC API · NO KEY · 30S REFRESH</div>
 
-      {isLoading ? <Loading /> : error ? <ErrorBlock err={error as Error} /> : rows.length === 0 ? (
+      {isPending ? <Loading /> : error ? <ErrorBlock err={error as Error} /> : rows.length === 0 ? (
         <EmptyBlock>No derivatives data returned.</EmptyBlock>
       ) : (
         <div className="border border-term-border overflow-auto scroll-thin max-h-[70vh]">

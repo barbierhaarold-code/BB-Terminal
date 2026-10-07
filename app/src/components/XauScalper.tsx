@@ -49,7 +49,7 @@ export function XauScalper({ onHeaderClick }: { onHeaderClick?: () => void }) {
   return (
     <div className="panel h-full">
       <div className="panel-header cursor-pointer" onClick={onHeaderClick ?? (() => openTab("GP", "GC=F"))}>
-        <span className="text-term-amberBright">GOLD · SCALPER</span>
+        <span className="text-term-amberBright">GOLD</span>
         <span className="sub-header normal-case tracking-normal font-normal">
           XAU/USD SPOT — TWELVE DATA
         </span>
