@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchDividends } from "@/lib/api";
 import { fmtPrice, fmtDate } from "@/lib/format";
+import { DataNote } from "./research/shared";
 
 export function DVD({ symbol }: { symbol: string }) {
   const { data = [], isLoading, error } = useQuery({
@@ -23,7 +24,8 @@ export function DVD({ symbol }: { symbol: string }) {
   if (sorted.length === 0) return <div className="p-4 text-term-muted">No dividend history.</div>;
 
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 p-3 text-[12px] h-full">
+    <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 p-3 text-[12px] h-full content-start">
+      <div className="col-span-2"><DataNote>The history of dividends the company has paid per share. Useful to see whether payments are steady, growing or have been cut. Past dividends do not guarantee future ones; check payout versus earnings.</DataNote></div>
       <div className="flex flex-col min-h-0">
         <div className="sub-header mb-1">PAYMENTS ({sorted.length})</div>
         <div className="flex-1 overflow-auto scroll-thin border border-term-border">
