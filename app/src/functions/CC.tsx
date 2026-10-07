@@ -21,7 +21,7 @@ function chgPctOf(data: Candle[] | undefined): number | undefined {
   return ((last.close - prev.close) / prev.close) * 100;
 }
 
-function Spark({ values, color = "#b45cff" }: { values: number[]; color?: string }) {
+function Spark({ values, color = "rgb(var(--term-amber))" }: { values: number[]; color?: string }) {
   if (values.length < 2) return null;
   const min = Math.min(...values), max = Math.max(...values);
   const pts = values.map((v, i) => {
@@ -95,7 +95,7 @@ function UsMarkets() {
                 </div>
               )}
               <div className="mt-auto pt-1">
-                <Spark values={vals} color={dir === "up" ? "#22ee22" : dir === "down" ? "#ff3b3b" : "#b45cff"} />
+                <Spark values={vals} color={dir === "up" ? "rgb(var(--term-green))" : dir === "down" ? "rgb(var(--term-red))" : "rgb(var(--term-amber))"} />
               </div>
             </div>
           );

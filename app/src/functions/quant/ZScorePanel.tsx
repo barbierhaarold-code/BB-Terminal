@@ -1,10 +1,23 @@
 import { useEffect, useRef } from "react";
-import { createChart, ColorType, LineStyle, type IChartApi, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
+import { createChart, LineStyle, type IChartApi, type IPriceLine, type ISeriesApi, type UTCTimestamp } from "lightweight-charts";
 import { cn } from "@/lib/cn";
+import { useChartTheme, baseChartOptions, type ChartPalette } from "@/lib/chartTheme";
 import { useCointegration } from "./useCointegration";
 
 const WINDOW = 20;
 const BANDS = [2, -2, 1, -1, 0] as const;
+
+/** (Re)create the σ-band price lines with the current palette. */
+function addBandLines(series: ISeriesApi<"Line">, ct: ChartPalette): IPriceLine[] {
+  return BANDS.map((level) =>
+    series.createPriceLine({
+      price: level,
+      color: level === 0 ? ct.muted : Math.abs(level) === 2 ? ct.down : ct.cyan,
+      lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true,
+      title: level === 0 ? "mean" : `${level > 0 ? "+" : ""}${level}σ`,
+    })
+  );
+}
 
 /** Rolling z-score of a series over `window` points (undefined until the
  * window has filled and stdev is non-zero). */
@@ -23,29 +36,38 @@ function rollingZScore(values: number[], window: number): (number | undefined)[]
 export function ZScorePanel({ symbolA, symbolB, lookbackDays }: { symbolA: string; symbolB: string; lookbackDays: number }) {
   const { isLoading, isError, insufficientData, aligned, result } = useCointegration(symbolA, symbolB, lookbackDays);
 
+  const ct = useChartTheme();
+
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const priceLinesRef = useRef<IPriceLine[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const base = baseChartOptions(ct);
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8a8a8a", fontFamily: "IBM Plex Mono, monospace", fontSize: 11 },
-      rightPriceScale: { borderColor: "#2a2a2a" },
-      timeScale: { borderColor: "#2a2a2a", timeVisible: false },
-      grid: { vertLines: { color: "rgba(42,42,42,0.4)" }, horzLines: { color: "rgba(42,42,42,0.4)" } },
+      ...base,
+      timeScale: { ...base.timeScale, timeVisible: false },
       autoSize: true,
     });
-    seriesRef.current = chart.addLineSeries({ color: "#b45cff", lineWidth: 2, priceLineVisible: false });
-    for (const level of BANDS) {
-      seriesRef.current.createPriceLine({
-        price: level, color: level === 0 ? "#6e6e6e" : Math.abs(level) === 2 ? "#ff3b3b" : "#22ccee",
-        lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: level === 0 ? "mean" : `${level > 0 ? "+" : ""}${level}σ`,
-      });
-    }
+    const series = chart.addLineSeries({ color: ct.accent, lineWidth: 2, priceLineVisible: false });
+    seriesRef.current = series;
+    priceLinesRef.current = addBandLines(series, ct);
     chartRef.current = chart;
-    return () => { chart.remove(); chartRef.current = null; seriesRef.current = null; };
+    return () => { chart.remove(); chartRef.current = null; seriesRef.current = null; priceLinesRef.current = []; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-theme in place on the light/dark toggle.
+  useEffect(() => {
+    chartRef.current?.applyOptions(baseChartOptions(ct));
+    const series = seriesRef.current;
+    if (!series) return;
+    series.applyOptions({ color: ct.accent });
+    priceLinesRef.current.forEach((l) => series.removePriceLine(l));
+    priceLinesRef.current = addBandLines(series, ct);
+  }, [ct]);
 
   const zSeries = aligned && result
     ? aligned.a.map((v, i) => v - result.hedge_ratio * aligned.b[i])

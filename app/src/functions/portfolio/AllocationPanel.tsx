@@ -6,7 +6,7 @@ import { usePortfolio } from "@/store/portfolioStore";
 import { computePositionMetrics, sectorAllocation } from "@/lib/portfolio";
 import { cn } from "@/lib/cn";
 
-const BAR_COLORS = ["#b45cff", "#22ccee", "#22ee22", "#ff3b3b", "#cd93ff", "#6d2ea6", "#8a8a8a"];
+const BAR_COLORS = ["rgb(var(--term-amber))", "rgb(var(--term-cyan))", "rgb(var(--term-green))", "rgb(var(--term-red))", "rgb(var(--term-amber-bright))", "rgb(var(--term-amber-dim))", "rgb(var(--term-muted))"];
 
 export function AllocationPanel() {
   const positions = usePortfolio((s) => s.positions);

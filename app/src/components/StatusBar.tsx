@@ -30,8 +30,8 @@ export function StatusBar() {
         <span className="flex items-center gap-2">
           <span className={
             apiOk == null ? "w-1.5 h-1.5 bg-term-muted"
-            : apiOk ? "w-1.5 h-1.5 bg-term-green shadow-[0_0_6px_rgba(34,238,34,0.6)]"
-            : "w-1.5 h-1.5 bg-term-red shadow-[0_0_6px_rgba(255,59,59,0.6)]"
+            : apiOk ? "w-1.5 h-1.5 bg-term-green shadow-[0_0_6px_rgb(var(--term-green)/0.6)]"
+            : "w-1.5 h-1.5 bg-term-red shadow-[0_0_6px_rgb(var(--term-red)/0.6)]"
           } />
           <span>OPENBB {apiOk == null ? "…" : apiOk ? "LIVE" : "DOWN"}</span>
         </span>

@@ -110,11 +110,11 @@ function OiBarChart({ rows, underlying }: { rows: { strike: number; call: number
   return (
     <div className="relative border border-term-border bg-term-bg2 min-h-[200px]">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
-        <line x1={padL} y1={midY} x2={W - padR} y2={midY} stroke="#2a2a2a" />
+        <line x1={padL} y1={midY} x2={W - padR} y2={midY} stroke="rgb(var(--term-border))" />
         {rows.map((r, i) => (
           <g key={r.strike}>
-            <rect x={xFor(i)} y={midY - hFor(r.call)} width={barW} height={hFor(r.call)} fill="#22ee22" opacity={0.8} />
-            <rect x={xFor(i)} y={midY} width={barW} height={hFor(r.put)} fill="#ff3b3b" opacity={0.8} />
+            <rect x={xFor(i)} y={midY - hFor(r.call)} width={barW} height={hFor(r.call)} fill="rgb(var(--term-green))" opacity={0.8} />
+            <rect x={xFor(i)} y={midY} width={barW} height={hFor(r.put)} fill="rgb(var(--term-red))" opacity={0.8} />
           </g>
         ))}
         {underlying != null && (
@@ -123,13 +123,13 @@ function OiBarChart({ rows, underlying }: { rows: { strike: number; call: number
               let bestI = 0, bestDiff = Infinity;
               rows.forEach((r, i) => { const d = Math.abs(r.strike - underlying); if (d < bestDiff) { bestDiff = d; bestI = i; } });
               const x = xFor(bestI) + barW / 2;
-              return <line x1={x} y1={padT} x2={x} y2={H - padB} stroke="#b45cff" strokeDasharray="3,3" />;
+              return <line x1={x} y1={padT} x2={x} y2={H - padB} stroke="rgb(var(--term-amber))" strokeDasharray="3,3" />;
             })()}
           </>
         )}
         {rows.filter((_, i) => i % Math.ceil(rows.length / 12 || 1) === 0).map((r) => {
           const i = rows.indexOf(r);
-          return <text key={r.strike} x={xFor(i) + barW / 2} y={H - padB + 12} fontSize="9" textAnchor="middle" fill="#6e6e6e">{r.strike}</text>;
+          return <text key={r.strike} x={xFor(i) + barW / 2} y={H - padB + 12} fontSize="9" textAnchor="middle" fill="rgb(var(--term-muted))">{r.strike}</text>;
         })}
       </svg>
       <div className="absolute top-2 right-3 text-[10px] uppercase tracking-widest text-term-muted flex items-center gap-3">

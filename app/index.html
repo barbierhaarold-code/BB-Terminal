@@ -7,6 +7,21 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+      // Anti-FOUC: apply the persisted theme before first paint so a light-mode
+      // reload doesn't flash the dark palette. Mirrors zustand-persist's storage
+      // shape ({ state: { mode } }) under the `bbterminal-theme` key; defaults
+      // to dark on anything unexpected.
+      (function () {
+        try {
+          var raw = localStorage.getItem("bbterminal-theme");
+          var mode = raw ? JSON.parse(raw).state.mode : "dark";
+          document.documentElement.setAttribute("data-theme", mode === "light" ? "light" : "dark");
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
   <body class="bg-term-bg">
     <div id="root"></div>

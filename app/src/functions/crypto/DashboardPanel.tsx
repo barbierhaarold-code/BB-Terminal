@@ -136,7 +136,7 @@ export function DashboardPanel() {
                   <td className="text-right">
                     {spark && (
                       <svg viewBox="0 0 100 24" className="w-24 h-6 inline-block">
-                        <polyline fill="none" stroke={dir === "up" ? "#22ee22" : dir === "down" ? "#ff3b3b" : "#b45cff"} strokeWidth="1.2" points={spark} />
+                        <polyline fill="none" stroke={dir === "up" ? "rgb(var(--term-green))" : dir === "down" ? "rgb(var(--term-red))" : "rgb(var(--term-amber))"} strokeWidth="1.2" points={spark} />
                       </svg>
                     )}
                   </td>

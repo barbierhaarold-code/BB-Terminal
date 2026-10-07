@@ -5,10 +5,10 @@ import {
 import { cn } from "@/lib/cn";
 
 const BAND_COLORS: Record<string, string> = {
-  Sydney: "rgba(34,204,238,0.55)",
-  Tokyo: "rgba(34,238,34,0.5)",
-  London: "rgba(180,92,255,0.6)",
-  "New York": "rgba(205,147,255,0.6)",
+  Sydney: "rgb(var(--term-cyan) / 0.55)",
+  Tokyo: "rgb(var(--term-green) / 0.5)",
+  London: "rgb(var(--term-amber) / 0.6)",
+  "New York": "rgb(var(--term-amber-bright) / 0.6)",
 };
 
 export function SessionsClock() {
@@ -41,7 +41,7 @@ export function SessionsClock() {
               <div className="flex items-center justify-between">
                 <span className="text-term-heading font-bold tracking-wider">{s.def.short}</span>
                 <span className={cn("w-1.5 h-1.5 rounded-full",
-                  s.open ? "bg-term-green shadow-[0_0_6px_rgba(34,238,34,0.7)]" : "bg-term-muted")} />
+                  s.open ? "bg-term-green shadow-[0_0_6px_rgb(var(--term-green)/0.7)]" : "bg-term-muted")} />
               </div>
               <div className="num text-term-text">{s.localTime}</div>
               <div className={cn("num text-[10px]", s.open ? "up" : "text-term-muted")}>
@@ -80,7 +80,7 @@ export function SessionsClock() {
               </div>
             ))}
             {/* now marker */}
-            <div className="absolute top-0 bottom-0 w-px bg-term-amber shadow-[0_0_6px_rgba(180,92,255,0.8)] z-10"
+            <div className="absolute top-0 bottom-0 w-px bg-term-amber shadow-[0_0_6px_rgb(var(--term-amber)/0.8)] z-10"
               style={{ left: `${(nowHour / 24) * 100}%` }}>
               <div className="absolute -top-0.5 -left-[3px] w-[7px] h-[7px] rotate-45 bg-term-amber" />
             </div>

@@ -88,7 +88,7 @@ export function XauScalper({ onHeaderClick }: { onHeaderClick?: () => void }) {
             </div>
             <div className="relative h-1.5 bg-term-panel2 border border-term-border">
               {rangePct != null && (
-                <div className="absolute -top-[3px] w-[3px] h-[9px] bg-term-amber shadow-[0_0_5px_rgba(180,92,255,0.8)]"
+                <div className="absolute -top-[3px] w-[3px] h-[9px] bg-term-amber shadow-[0_0_5px_rgb(var(--term-amber)/0.8)]"
                   style={{ left: `calc(${Math.max(0, Math.min(100, rangePct))}% - 1px)` }} />
               )}
             </div>

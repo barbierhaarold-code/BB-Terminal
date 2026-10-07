@@ -160,7 +160,7 @@ function Slider({
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-[#b45cff]"
+        className="w-full accent-[rgb(var(--term-amber))]"
       />
       {hint && <div className="sub-header mt-0.5 normal-case">{hint}</div>}
     </div>

@@ -8,6 +8,7 @@ import { FunctionPanel } from "@/components/FunctionPanel";
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { useWorkspace } from "@/store/workspaceStore";
 import { useCopilot } from "@/store/copilotStore";
+import { useThemeMode } from "@/store/themeStore";
 import { FUNCTIONS, type FunctionCode } from "@/lib/functions";
 import type { CurrentView } from "@/lib/copilotConfig";
 
@@ -83,12 +84,19 @@ const VIEW_BY_CODE: Partial<Record<FunctionCode, CurrentView>> = {
 export default function App() {
   const { tabs, activeTabId } = useWorkspace();
   const setCurrentView = useCopilot((s) => s.setCurrentView);
+  const themeMode = useThemeMode();
   const active = useMemo(() => tabs.find((t) => t.id === activeTabId) ?? tabs[0], [tabs, activeTabId]);
   const screen = active && SCREENS[active.code]?.(active.symbol);
 
   useEffect(() => {
     setCurrentView(active ? VIEW_BY_CODE[active.code] ?? "other" : "other");
   }, [active, setCurrentView]);
+
+  // Keep <html data-theme> in sync with the persisted store (the inline script
+  // in index.html handles the very first paint; this handles every toggle after).
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", themeMode);
+  }, [themeMode]);
 
   return (
     <div className="h-screen flex flex-col">

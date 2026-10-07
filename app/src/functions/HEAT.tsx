@@ -6,6 +6,7 @@ import { fmtPct } from "@/lib/format";
 import { membersOf, INDEX_LABELS, type IndexId } from "@/lib/universe";
 import { useSectorPerformance } from "@/lib/sectors";
 import { useWorkspace } from "@/store/workspaceStore";
+import { useThemeMode } from "@/store/themeStore";
 import { cn } from "@/lib/cn";
 
 const RANGES = [
@@ -22,12 +23,15 @@ const TILE_CAP = 120; // bound the per-ticker fan-out for non-"Today" ranges
 interface Leaf { name: string; symbol: string; sector: string; industry: string; value: number; pct?: number; }
 interface TreeNode { name: string; sector?: string; children?: TreeNode[]; leaf?: Leaf; }
 
-/** Diverging green↔red fill from a % change, clamped to ±4%. */
-function heatColor(pct: number | undefined): string {
-  if (pct == null) return "rgba(40,40,40,0.9)";
+/** Diverging green↔red fill from a % change, clamped to ±4%. Uses the
+ * `--term-green` / `--term-red` CSS variables so the hue tracks the theme.
+ * Light mode needs a higher alpha floor + gain — a low-alpha tint over white
+ * paper washes out, where the same alpha over near-black reads fine. */
+function heatColor(pct: number | undefined, light: boolean): string {
+  if (pct == null) return "rgb(var(--term-border) / 0.5)";
   const c = Math.max(-4, Math.min(4, pct)) / 4; // -1..1
-  const a = 0.18 + Math.abs(c) * 0.62;
-  return c >= 0 ? `rgba(34,238,34,${a.toFixed(3)})` : `rgba(255,59,59,${a.toFixed(3)})`;
+  const a = light ? 0.3 + Math.abs(c) * 0.6 : 0.18 + Math.abs(c) * 0.62;
+  return c >= 0 ? `rgb(var(--term-green) / ${a.toFixed(3)})` : `rgb(var(--term-red) / ${a.toFixed(3)})`;
 }
 
 function useSize<T extends HTMLElement>() {
@@ -47,6 +51,7 @@ function useSize<T extends HTMLElement>() {
 
 export function HEAT() {
   const openTab = useWorkspace((s) => s.openTab);
+  const light = useThemeMode() === "light";
   const [index, setIndex] = useState<IndexId>("sp500");
   const [range, setRange] = useState(RANGES[0]);
   const members = useMemo(() => membersOf(index), [index]);
@@ -185,7 +190,7 @@ export function HEAT() {
             return (
               <g key={`sec-${s.data.name}`}>
                 <rect x={s.x0} y={s.y0} width={Math.max(0, s.x1 - s.x0)} height={Math.max(0, s.y1 - s.y0)}
-                  fill="none" stroke="#2a2a2a" strokeWidth={1} />
+                  fill="none" stroke="rgb(var(--term-border))" strokeWidth={1} />
                 <text x={s.x0 + 4} y={s.y0 + 10} className="fill-term-muted" style={{ fontSize: 9, letterSpacing: "0.08em" }}>
                   {s.data.name.toUpperCase()} {spct != null ? `${spct >= 0 ? "+" : ""}${spct.toFixed(2)}%` : ""}
                 </text>
@@ -200,7 +205,7 @@ export function HEAT() {
             return (
               <g key={leaf.symbol} className="cursor-pointer" onClick={() => openTab("INTEL", leaf.symbol)}>
                 <title>{`${leaf.symbol} · ${leaf.industry}\n${fmtPct(leaf.pct)}`}</title>
-                <rect x={l.x0} y={l.y0} width={w} height={h} fill={heatColor(leaf.pct)} stroke="#0a0a0a" strokeWidth={0.5} />
+                <rect x={l.x0} y={l.y0} width={w} height={h} fill={heatColor(leaf.pct, light)} stroke="rgb(var(--term-bg))" strokeWidth={0.5} />
                 {showText && (
                   <>
                     <text x={l.x0 + w / 2} y={l.y0 + h / 2 - 1} textAnchor="middle" className="fill-term-heading"

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  createChart, ColorType, LineStyle,
+  createChart, LineStyle,
   type IChartApi, type ISeriesApi, type UTCTimestamp,
 } from "lightweight-charts";
 import { useQuery } from "@tanstack/react-query";
 import { fetchHistorical, type OptionsRow } from "@/lib/api";
 import { fmtPrice, fmtPct } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { useChartTheme, baseChartOptions, crosshairOptions } from "@/lib/chartTheme";
 import { useOptionsChain } from "./useOptionsChain";
 import { atmIv } from "./chainMath";
 
@@ -57,6 +58,8 @@ export function ExpectedRangePanel({ symbol }: { symbol: string }) {
 
   const activeStat = stats.find((s) => s.label === coneHorizon) ?? stats[0];
 
+  const ct = useChartTheme();
+
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -64,20 +67,19 @@ export function ExpectedRangePanel({ symbol }: { symbol: string }) {
 
   useEffect(() => {
     if (!containerRef.current) return;
+    const base = baseChartOptions(ct);
     const chart = createChart(containerRef.current, {
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: "#8a8a8a", fontFamily: "IBM Plex Mono, monospace", fontSize: 11 },
-      rightPriceScale: { borderColor: "#2a2a2a" },
-      timeScale: { borderColor: "#2a2a2a", timeVisible: false },
-      grid: { vertLines: { color: "rgba(42,42,42,0.4)" }, horzLines: { color: "rgba(42,42,42,0.4)" } },
+      ...base,
+      timeScale: { ...base.timeScale, timeVisible: false },
       crosshair: {
-        vertLine: { color: "#b45cff", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#b45cff" },
-        horzLine: { color: "#b45cff", width: 1, style: LineStyle.Dashed, labelBackgroundColor: "#b45cff" },
+        vertLine: { ...crosshairOptions(ct).vertLine, width: 1, style: LineStyle.Dashed },
+        horzLine: { ...crosshairOptions(ct).horzLine, width: 1, style: LineStyle.Dashed },
       },
       autoSize: true,
     });
     candleSeriesRef.current = chart.addCandlestickSeries({
-      upColor: "#22ee22", downColor: "#ff3b3b", borderVisible: false,
-      wickUpColor: "#22ee22", wickDownColor: "#ff3b3b",
+      upColor: ct.up, downColor: ct.down, borderVisible: false,
+      wickUpColor: ct.up, wickDownColor: ct.down,
     });
     const mkLine = (opacity: number) => chart.addLineSeries({
       color: `rgba(180,92,255,${opacity})`, lineWidth: 2, lineStyle: LineStyle.Dashed,
@@ -89,7 +91,23 @@ export function ExpectedRangePanel({ symbol }: { symbol: string }) {
     };
     chartRef.current = chart;
     return () => { chart.remove(); chartRef.current = null; candleSeriesRef.current = null; coneSeriesRef.current = {}; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-theme in place on the light/dark toggle. Cone lines stay violet
+  // (locked accent, identical in both modes).
+  useEffect(() => {
+    chartRef.current?.applyOptions({
+      ...baseChartOptions(ct),
+      crosshair: {
+        vertLine: crosshairOptions(ct).vertLine,
+        horzLine: crosshairOptions(ct).horzLine,
+      },
+    });
+    candleSeriesRef.current?.applyOptions({
+      upColor: ct.up, downColor: ct.down, wickUpColor: ct.up, wickDownColor: ct.down,
+    });
+  }, [ct]);
 
   useEffect(() => {
     const series = candleSeriesRef.current;

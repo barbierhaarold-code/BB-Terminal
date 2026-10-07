@@ -119,16 +119,16 @@ function TermStructureChart({ points }: { points: { expiration: string; dte: num
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
         {[minIv, (minIv + maxIv) / 2, maxIv].map((v, i) => (
           <g key={i}>
-            <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} stroke="#1f1f1f" />
-            <text x={padL - 4} y={yFor(v) + 3} fontSize="9" textAnchor="end" fill="#6e6e6e">{(v * 100).toFixed(1)}%</text>
+            <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} stroke="rgb(var(--term-border-soft))" />
+            <text x={padL - 4} y={yFor(v) + 3} fontSize="9" textAnchor="end" fill="rgb(var(--term-muted))">{(v * 100).toFixed(1)}%</text>
           </g>
         ))}
         {points.map((p) => (
-          <text key={p.expiration} x={xFor(p.dte)} y={H - padB + 14} fontSize="9" textAnchor="middle" fill="#6e6e6e">{p.dte}d</text>
+          <text key={p.expiration} x={xFor(p.dte)} y={H - padB + 14} fontSize="9" textAnchor="middle" fill="rgb(var(--term-muted))">{p.dte}d</text>
         ))}
-        <polyline fill="none" stroke="#b45cff" strokeWidth="2" points={path} />
+        <polyline fill="none" stroke="rgb(var(--term-amber))" strokeWidth="2" points={path} />
         {points.map((p) => (
-          <circle key={p.expiration} cx={xFor(p.dte)} cy={yFor(p.iv)} r="3" fill="#b45cff" />
+          <circle key={p.expiration} cx={xFor(p.dte)} cy={yFor(p.iv)} r="3" fill="rgb(var(--term-amber))" />
         ))}
       </svg>
     </div>
@@ -162,22 +162,22 @@ function SkewChart({ skew, underlying }: { skew: SkewData; underlying: number })
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
         {[minIv, (minIv + maxIv) / 2, maxIv].map((v, i) => (
           <g key={i}>
-            <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} stroke="#1f1f1f" />
-            <text x={padL - 4} y={yFor(v) + 3} fontSize="9" textAnchor="end" fill="#6e6e6e">{(v * 100).toFixed(1)}%</text>
+            <line x1={padL} y1={yFor(v)} x2={W - padR} y2={yFor(v)} stroke="rgb(var(--term-border-soft))" />
+            <text x={padL - 4} y={yFor(v) + 3} fontSize="9" textAnchor="end" fill="rgb(var(--term-muted))">{(v * 100).toFixed(1)}%</text>
           </g>
         ))}
         {/* underlying spot reference */}
-        <line x1={xFor(underlying)} y1={padT} x2={xFor(underlying)} y2={H - padB} stroke="#3a3a3a" strokeDasharray="3,3" />
-        <text x={xFor(underlying)} y={padT - 4} fontSize="9" textAnchor="middle" fill="#6e6e6e">SPOT</text>
+        <line x1={xFor(underlying)} y1={padT} x2={xFor(underlying)} y2={H - padB} stroke="rgb(var(--term-muted))" strokeDasharray="3,3" />
+        <text x={xFor(underlying)} y={padT - 4} fontSize="9" textAnchor="middle" fill="rgb(var(--term-muted))">SPOT</text>
 
-        <polyline fill="none" stroke="#22ee22" strokeWidth="1.5" points={callPath} />
-        <polyline fill="none" stroke="#ff3b3b" strokeWidth="1.5" points={putPath} />
+        <polyline fill="none" stroke="rgb(var(--term-green))" strokeWidth="1.5" points={callPath} />
+        <polyline fill="none" stroke="rgb(var(--term-red))" strokeWidth="1.5" points={putPath} />
 
         {skew.best25Call && (
-          <circle cx={xFor(skew.best25Call.strike)} cy={yFor(skew.best25Call.iv)} r="4" fill="#22ee22" stroke="#0a0a0a" strokeWidth="1" />
+          <circle cx={xFor(skew.best25Call.strike)} cy={yFor(skew.best25Call.iv)} r="4" fill="rgb(var(--term-green))" stroke="rgb(var(--term-bg))" strokeWidth="1" />
         )}
         {skew.best25Put && (
-          <circle cx={xFor(skew.best25Put.strike)} cy={yFor(skew.best25Put.iv)} r="4" fill="#ff3b3b" stroke="#0a0a0a" strokeWidth="1" />
+          <circle cx={xFor(skew.best25Put.strike)} cy={yFor(skew.best25Put.iv)} r="4" fill="rgb(var(--term-red))" stroke="rgb(var(--term-bg))" strokeWidth="1" />
         )}
       </svg>
       <div className="absolute top-2 right-3 text-[10px] uppercase tracking-widest text-term-muted flex items-center gap-3">

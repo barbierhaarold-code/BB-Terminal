@@ -152,27 +152,27 @@ function ExposureBarChart({ rows, underlying, flipPoint }: {
   return (
     <div className="relative border border-term-border bg-term-bg2 min-h-[220px]">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full">
-        <line x1={padL} y1={midY} x2={W - padR} y2={midY} stroke="#2a2a2a" />
+        <line x1={padL} y1={midY} x2={W - padR} y2={midY} stroke="rgb(var(--term-border))" />
         {rows.map((r, i) => (
           <rect key={r.strike}
             x={xFor(i)} y={r.value >= 0 ? midY - hFor(r.value) : midY}
             width={barW} height={hFor(r.value)}
-            fill={r.value >= 0 ? "#22ee22" : "#ff3b3b"} opacity={0.8} />
+            fill={r.value >= 0 ? "rgb(var(--term-green))" : "rgb(var(--term-red))"} opacity={0.8} />
         ))}
         {underlying != null && (
-          <line x1={xForStrike(underlying)} y1={padT} x2={xForStrike(underlying)} y2={H - padB} stroke="#b45cff" strokeDasharray="3,3" />
+          <line x1={xForStrike(underlying)} y1={padT} x2={xForStrike(underlying)} y2={H - padB} stroke="rgb(var(--term-amber))" strokeDasharray="3,3" />
         )}
         {flipPoint != null && (
-          <line x1={xForStrike(flipPoint)} y1={padT} x2={xForStrike(flipPoint)} y2={H - padB} stroke="#ffaa33" strokeWidth="1.5" />
+          <line x1={xForStrike(flipPoint)} y1={padT} x2={xForStrike(flipPoint)} y2={H - padB} stroke="rgb(var(--term-cyan))" strokeWidth="1.5" />
         )}
         {rows.filter((_, i) => i % Math.ceil(rows.length / 12 || 1) === 0).map((r) => {
           const i = rows.indexOf(r);
-          return <text key={r.strike} x={xFor(i) + barW / 2} y={H - padB + 12} fontSize="9" textAnchor="middle" fill="#6e6e6e">{r.strike}</text>;
+          return <text key={r.strike} x={xFor(i) + barW / 2} y={H - padB + 12} fontSize="9" textAnchor="middle" fill="rgb(var(--term-muted))">{r.strike}</text>;
         })}
       </svg>
       <div className="absolute top-2 right-3 text-[10px] uppercase tracking-widest text-term-muted flex items-center gap-3">
         <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-term-amber" />SPOT</span>
-        {flipPoint != null && <span className="flex items-center gap-1"><span className="w-2 h-0.5" style={{ background: "#ffaa33" }} />FLIP</span>}
+        {flipPoint != null && <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-term-cyan" />FLIP</span>}
       </div>
     </div>
   );
