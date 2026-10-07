@@ -1,4 +1,5 @@
 import { ApiError } from "@/lib/api";
+import { applyFeatureLock } from "@/lib/featureLock";
 import type { ChatMessage } from "@/lib/copilotConfig";
 
 export interface AnthropicTool {
@@ -27,6 +28,9 @@ export async function callCopilot(system: string, messages: ChatMessage[], tools
     body: JSON.stringify({ system, messages, tools }),
   });
   const body = await res.json().catch(() => ({}));
+  // 403 feature_locked → FeatureLockedError (the panel shows the locked teaser);
+  // any other non-OK response stays a normal ApiError.
+  applyFeatureLock("copilot", res, body);
   if (!res.ok || !body.results) {
     throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Copilot request failed");
   }

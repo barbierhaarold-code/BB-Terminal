@@ -25,6 +25,9 @@ import { AIS_POLL_MS, fetchVessels } from "./map/ais";
 import { useCountryIntelLayer } from "./map/useCountryIntelLayer";
 import { fetchCountryBoundaries } from "./map/countryIntel";
 import { CountryIntelPanel } from "./map/CountryIntelPanel";
+import { useFeatureLock } from "@/store/featureLockStore";
+import { LockedFeature } from "@/components/LockedFeature";
+import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const QUAKE_WINDOWS: QuakeWindow[] = ["day", "week", "month"];
@@ -152,6 +155,7 @@ export function MAP() {
     enabled: aisOn && !!aisBounds,
   });
   useAisLayer(map, aisQuery.data, aisOn);
+  const aisLocked = useFeatureLock((s) => s.locked.ais);
 
   const boundariesQuery = useQuery({
     queryKey: ["map-country-boundaries"],
@@ -347,9 +351,12 @@ export function MAP() {
             <div className="mt-1.5 text-[10px] text-term-muted">Live community feed (AISStream.io) · no uptime guarantee</div>
             <AisStatus
               enabled={aisOn}
+              locked={aisLocked}
               loading={aisQuery.isLoading || (aisOn && !aisBounds)}
-              fetchError={aisQuery.error as Error | null}
-              result={aisQuery.data}
+              // While locked, the full teaser is shown over the map — keep the
+              // sidebar from also printing a red "feature_locked" error line.
+              fetchError={aisLocked ? null : (aisQuery.error as Error | null)}
+              result={aisLocked ? undefined : aisQuery.data}
             />
           </div>
 
@@ -385,6 +392,21 @@ export function MAP() {
       {countryOn && selectedCountry ? (
         <CountryIntelPanel iso3={selectedCountry.iso3} name={selectedCountry.name} onClose={() => setSelectedCountry(null)} />
       ) : null}
+
+      {aisOn && aisLocked ? (
+        <div className="absolute inset-0 z-[1200] flex items-center justify-center bg-term-bg/70 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-md max-h-full bg-term-panel border border-term-border shadow-panel">
+            <button
+              onClick={() => setAisOn(false)}
+              title="Close"
+              className="absolute top-2 right-2 z-10 p-1.5 text-term-muted hover:text-term-text"
+            >
+              <X size={15} />
+            </button>
+            <LockedFeature feature="ais" />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -408,10 +430,11 @@ function LayerToggle({ label, active, onClick }: { label: string; active: boolea
 }
 
 function AisStatus({
-  enabled, loading, fetchError, result,
-}: { enabled: boolean; loading: boolean; fetchError: Error | null; result: import("./map/ais").AisResult | undefined }) {
+  enabled, locked, loading, fetchError, result,
+}: { enabled: boolean; locked?: boolean; loading: boolean; fetchError: Error | null; result: import("./map/ais").AisResult | undefined }) {
   let body: React.ReactNode;
   if (!enabled) body = <span className="text-term-muted">Layer hidden</span>;
+  else if (locked) body = <span className="text-term-amber">Members only — access managed by Harold</span>;
   else if (fetchError) body = <span className="text-term-red">Feed unavailable — {fetchError.message}</span>;
   else if (!result) body = <span className="text-term-muted">{loading ? "Loading…" : "No data available."}</span>;
   else if (result.status === "connected") {

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, X, Send, RotateCcw, Wrench, TriangleAlert } from "lucide-react";
 import { useCopilot } from "@/store/copilotStore";
+import { useFeatureLock } from "@/store/featureLockStore";
+import { LockedFeature } from "@/components/LockedFeature";
 import { cn } from "@/lib/cn";
 import type { ContentBlock } from "@/lib/copilotConfig";
 
@@ -13,6 +15,7 @@ const EXAMPLE_PROMPTS = [
 
 export function CopilotPanel() {
   const { isOpen, close, messages, status, errorMessage, toolLog, sendMessage, reset } = useCopilot();
+  const locked = useFeatureLock((s) => s.locked.copilot);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -48,6 +51,10 @@ export function CopilotPanel() {
         </div>
       </div>
 
+      {locked ? (
+        <LockedFeature feature="copilot" />
+      ) : (
+      <>
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto scroll-thin p-3 flex flex-col gap-3">
         {messages.length === 0 && (
           <div className="flex flex-col gap-3">
@@ -101,6 +108,8 @@ export function CopilotPanel() {
           <Send size={13} />
         </button>
       </div>
+      </>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 // treats anything other than status "connected" as "feed unavailable" and
 // never displays positions it wasn't just handed by a live feed.
 import type L from "leaflet";
+import { applyFeatureLock } from "@/lib/featureLock";
 
 export type AisFeedStatus = "no_key" | "connecting" | "connected" | "stalled" | "error";
 
@@ -26,6 +27,8 @@ export async function fetchVessels(bounds: L.LatLngBounds | null): Promise<AisRe
   const q = bounds ? `?south=${bounds.getSouth()}&west=${bounds.getWest()}&north=${bounds.getNorth()}&east=${bounds.getEast()}` : "";
   const res = await fetch(`/ais-proxy/vessels${q}`);
   const body = await res.json().catch(() => null);
+  // 403 feature_locked → FeatureLockedError (the map shows the locked teaser).
+  applyFeatureLock("ais", res, body ?? {});
   if (!body || typeof body.status !== "string") throw new Error(`AIS feed failed: HTTP ${res.status}`);
   return {
     status: body.status,
