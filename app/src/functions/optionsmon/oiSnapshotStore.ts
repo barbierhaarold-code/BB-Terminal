@@ -8,6 +8,9 @@ export interface OiSnapshot {
 
 interface OiSnapshotState {
   snapshots: Record<string, OiSnapshot>; // underlying symbol -> last saved snapshot
+  /** The snapshot that `snapshots[symbol]` replaced (an earlier day), so a same-day
+   * re-open still has something to diff against. Optional: absent in older saved data. */
+  previous?: Record<string, OiSnapshot>;
   save: (symbol: string, snapshot: OiSnapshot) => void;
 }
 
@@ -22,8 +25,16 @@ export const useOiSnapshotStore = create<OiSnapshotState>()(
   persist(
     (set) => ({
       snapshots: {},
+      previous: {},
       save: (symbol, snapshot) =>
-        set((s) => ({ snapshots: { ...s.snapshots, [symbol]: snapshot } })),
+        set((s) => {
+          const existing = s.snapshots[symbol];
+          const replacesEarlierDay = existing && existing.date !== snapshot.date;
+          return {
+            snapshots: { ...s.snapshots, [symbol]: snapshot },
+            previous: replacesEarlierDay ? { ...(s.previous ?? {}), [symbol]: existing } : (s.previous ?? {}),
+          };
+        }),
     }),
     { name: "abdelkhader-options-oi-snapshot" }
   )

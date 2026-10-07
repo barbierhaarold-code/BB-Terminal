@@ -9,6 +9,9 @@ export function useRiskFreeRate(): number {
     queryFn: () => fetchTreasuryRates(30),
     staleTime: 3_600_000,
   });
-  const last = data?.[data.length - 1]?.month_3;
-  return last != null ? last / 100 : DEFAULT_RISK_FREE_RATE;
+  // The API returns rates as decimals (0.0422 = 4.22%) — NOT percent — so no /100.
+  // Pick the newest row by date rather than trusting array order.
+  const latest = data?.length ? [...data].sort((a, b) => (a.date > b.date ? 1 : -1))[data.length - 1] : undefined;
+  const r = latest?.month_3;
+  return r != null && r > 0 && r < 0.25 ? r : DEFAULT_RISK_FREE_RATE;
 }

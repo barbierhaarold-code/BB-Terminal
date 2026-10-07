@@ -52,6 +52,9 @@ function ttlForUrl(url: string): number {
   // isCacheableBody() below rejects those, but a short TTL bounds the damage
   // from any degraded-but-passing snapshot that slips through.
   if (pathname.includes("/equity/profile")) return 5 * 60_000;
+  // Yahoo's chain is ~15 min delayed and OI only updates daily, while a cold pull
+  // costs 6-10 s (every expiry fetched serially upstream) — cache it for 2 min.
+  if (pathname.includes("/derivatives/options/chains")) return 120_000;
   if (pathname.includes("/news/")) return 60_000;
   if (pathname.includes("/equity/discovery/")) return 60_000;
   if (interval === "5m" || interval === "15m" || interval === "1h") return 15_000;
@@ -117,11 +120,16 @@ function createGate(max: number) {
 // load — acceptable for a personal tool where these results are then cached
 // for a long TTL (see ttlForUrl above).
 const FORM_13F_TIMEOUT_MS = 45_000;
+// SPY's chain is ~4 MB / 9+ s cold; heavier underlyings can pass the default 25 s.
+const OPTIONS_CHAIN_TIMEOUT_MS = 45_000;
 
 export function apiCachePlugin(): Plugin {
   const cache = new Map<string, CacheEntry>();
   const gate = createGate(MAX_CONCURRENT_UPSTREAM);
   const secGate = createGate(1);
+  // Single-flight for options chains: OMON mounts several panels that can request the
+  // same chain at once; without this each one pays the full 6-10 s upstream pull.
+  const chainInflight = new Map<string, Promise<void>>();
 
   async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
     if (!req.url?.startsWith(API_PREFIX) || req.method !== "GET") { next(); return; }
@@ -137,13 +145,31 @@ export function apiCachePlugin(): Plugin {
       return;
     }
 
+    const isChain = key.includes("/derivatives/options/chains");
+    if (isChain) {
+      const pending = chainInflight.get(key);
+      if (pending) {
+        await pending;
+        const warm = cache.get(key);
+        if (warm && warm.expires > Date.now()) {
+          res.statusCode = warm.status;
+          res.setHeader("content-type", warm.contentType);
+          res.setHeader("x-bbterminal-cache", "HIT");
+          res.end(warm.body);
+          return;
+        }
+      }
+    }
+    let chainDone: () => void = () => {};
+    if (isChain) chainInflight.set(key, new Promise<void>((resolve) => { chainDone = resolve; }));
+
     const isSecProvider = key.includes("provider=sec") || key.includes("/regulators/sec/");
     const isForm13F = key.includes("/equity/ownership/form_13f");
     const activeGate = isSecProvider ? secGate : gate;
     await activeGate.acquire();
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), isForm13F ? FORM_13F_TIMEOUT_MS : UPSTREAM_TIMEOUT_MS);
+      const timeout = setTimeout(() => controller.abort(), isForm13F ? FORM_13F_TIMEOUT_MS : isChain ? OPTIONS_CHAIN_TIMEOUT_MS : UPSTREAM_TIMEOUT_MS);
       let upstream: Response;
       try {
         upstream = await fetch(API_TARGET + key, { signal: controller.signal });
@@ -171,6 +197,7 @@ export function apiCachePlugin(): Plugin {
       res.end(JSON.stringify({ results: [], warnings: [{ message: String((err as Error)?.message ?? err) }] }));
     } finally {
       activeGate.release();
+      if (isChain) { chainInflight.delete(key); chainDone(); }
     }
   }
 
