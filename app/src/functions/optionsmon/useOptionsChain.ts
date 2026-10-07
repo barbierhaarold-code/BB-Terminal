@@ -4,7 +4,7 @@ import { fetchOptions, type OptionsRow } from "@/lib/api";
 
 export function useOptionsChain(symbol: string) {
   const { data = [], isLoading, error } = useQuery({
-    queryKey: ["options", symbol], queryFn: () => fetchOptions(symbol), staleTime: 60_000,
+    queryKey: ["options", symbol], queryFn: () => fetchOptions(symbol), staleTime: 120_000, retry: 1,
   });
 
   const expirations = useMemo(

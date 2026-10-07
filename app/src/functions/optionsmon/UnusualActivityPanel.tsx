@@ -16,17 +16,20 @@ export function UnusualActivityPanel({ symbol }: { symbol: string }) {
   const { data, isLoading, error } = useOptionsChain(symbol);
   const save = useOiSnapshotStore((s) => s.save);
 
-  // Capture the snapshot that existed *before* this render's save, so the
-  // diff below compares against a genuinely prior day, not today-vs-today.
-  const prior = useMemo(
-    () => useOiSnapshotStore.getState().snapshots[symbol],
-    [symbol]
-  );
+  // Baseline = the latest snapshot from a day *before* today. Right after the first
+  // view of the day overwrites the stored snapshot with today's, the earlier one
+  // lives in `previous`, so re-opening the tab the same day still shows the diff.
+  const prior = useMemo(() => {
+    const st = useOiSnapshotStore.getState();
+    const cur = st.snapshots[symbol];
+    if (cur && cur.date < todayStr()) return cur;
+    return st.previous?.[symbol];
+  }, [symbol]);
 
   useEffect(() => {
     if (data.length === 0) return;
     const today = todayStr();
-    if (prior?.date === today) return;
+    if (useOiSnapshotStore.getState().snapshots[symbol]?.date === today) return;
     const byContract: Record<string, number> = {};
     for (const r of data) byContract[r.contract_symbol] = r.open_interest ?? 0;
     save(symbol, { date: today, byContract });
