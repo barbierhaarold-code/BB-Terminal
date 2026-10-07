@@ -19,6 +19,10 @@ async function get<T>(
     if (v !== undefined && v !== "") qs.set(k, String(v));
   }
   const res = await fetch(`${BASE}${path}?${qs.toString()}`);
+  // OpenBB answers 204 No Content (empty body) when a provider has nothing for the request
+  // (EmptyDataError). Treat that as "no rows", not as a payload with `results` missing —
+  // returning undefined here is what made list consumers crash with "x is not iterable".
+  if (res.status === 204) return [] as unknown as T;
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = body.detail;
@@ -105,8 +109,39 @@ export const fetchHistorical = (s: string, o: { interval?: string; start_date?: 
   });
 };
 
-export const fetchNewsCompany = (s: string, limit = 30) =>
-  get<NewsItem[]>("/news/company", { symbol: s, provider: "yfinance", limit });
+/** Yahoo's public RSS headline feed via our proxy — used when OpenBB/yfinance returns no news
+ * (yfinance 1.6.0's news endpoint returns nothing as of 2026-10-07; the RSS feed still works). */
+async function fetchNewsFallback(s: string, limit: number): Promise<NewsItem[]> {
+  const res = await fetch(`/yahoo-news-proxy/headlines?${new URLSearchParams({ symbol: s, limit: String(limit) })}`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body?.warnings?.[0]?.message ?? `News fallback failed: HTTP ${res.status}`);
+  // A non-JSON/odd reply (e.g. the SPA's index.html when the route isn't registered) is an error, not "no news".
+  if (!Array.isArray(body?.results)) throw new Error("News fallback route returned an unexpected response — restart the dev server so /yahoo-news-proxy is loaded");
+  return body.results as NewsItem[];
+}
+
+// An empty yfinance reply costs ~2 s each and queues behind the proxy's concurrency gate, so a
+// News Hub load (~40 symbols) took 40 s+. Once the primary source has come back empty, go
+// straight to the fallback for a while, then probe the primary again.
+let primaryNewsEmptyUntil = 0;
+const PRIMARY_NEWS_BACKOFF_MS = 10 * 60_000;
+
+export async function fetchNewsCompany(s: string, limit = 30): Promise<NewsItem[]> {
+  let primaryErr: unknown;
+  if (Date.now() >= primaryNewsEmptyUntil) {
+    try {
+      const r = await get<NewsItem[]>("/news/company", { symbol: s, provider: "yfinance", limit });
+      if (Array.isArray(r) && r.length > 0) return r;
+      primaryNewsEmptyUntil = Date.now() + PRIMARY_NEWS_BACKOFF_MS;
+    } catch (e) { primaryErr = e; }
+  }
+  try {
+    return await fetchNewsFallback(s, limit);
+  } catch (fallbackErr) {
+    // Report the real cause instead of an empty list that looks like "no news".
+    throw primaryErr ?? fallbackErr;
+  }
+}
 
 // ────── News Hub category feeds ──────
 // `/news/world` (a real general-news endpoint) only accepts benzinga/biztoc/
@@ -122,12 +157,21 @@ export async function aggregateCompanyNews(
 ): Promise<NewsItem[]> {
   const perSymbol = opts.perSymbol ?? 10;
   const limit = opts.limit ?? 40;
-  const batches = await Promise.all(
-    symbols.map((s) => fetchNewsCompany(s, perSymbol).catch(() => [] as NewsItem[]))
-  );
+  const failures: unknown[] = [];
+  const one = (s: string) => fetchNewsCompany(s, perSymbol).catch((e) => { failures.push(e); return [] as NewsItem[]; });
+  // Probe the first symbol alone: if the primary source is empty it trips the circuit-breaker in
+  // fetchNewsCompany, so the remaining symbols go straight to the fast fallback instead of all
+  // queueing 2 s empty requests behind the proxy's concurrency gate.
+  const [first, ...rest] = symbols;
+  const batches = first === undefined ? [] : [await one(first), ...(await Promise.all(rest.map(one)))];
+  // Every symbol failed → surface the real cause; a partial failure still shows what loaded.
+  if (symbols.length > 0 && failures.length === symbols.length) {
+    throw failures[0] instanceof Error ? failures[0] : new Error(String(failures[0]));
+  }
   const seen = new Set<string>();
   const merged: NewsItem[] = [];
   for (const batch of batches) {
+    if (!Array.isArray(batch)) continue;
     for (const n of batch) {
       const key = (n.url || n.title || "").trim().toLowerCase();
       if (!key || seen.has(key)) continue;
