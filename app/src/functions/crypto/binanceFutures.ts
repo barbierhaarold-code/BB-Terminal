@@ -30,12 +30,19 @@ interface LongShortRaw { longAccount: string; shortAccount: string; longShortRat
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${FAPI}${path}`);
-  if (!res.ok) throw new Error(`Binance Futures ${path} failed: HTTP ${res.status}`);
+  if (!res.ok) {
+    const hint = res.status === 451 || res.status === 403 ? " — region-blocked by Binance"
+      : res.status === 429 || res.status === 418 ? " — rate-limited by Binance" : "";
+    throw new Error(`Binance Futures ${path.split("?")[0]} failed: HTTP ${res.status}${hint}`);
+  }
   return res.json() as Promise<T>;
 }
 
 /** One row per tracked perp: mark price, funding rate, OI, and long/short ratio. */
 export async function fetchDerivatives(): Promise<DerivativesRow[]> {
+  // Remember why a symbol failed so "every request failed" surfaces as an
+  // error with its cause instead of an empty table ("no data returned").
+  let firstFailure: unknown;
   const rows = await Promise.all(
     DERIVATIVES_SYMBOLS.map(async (symbol): Promise<DerivativesRow | null> => {
       try {
@@ -58,10 +65,16 @@ export async function fetchDerivatives(): Promise<DerivativesRow[]> {
           shortAccountPct: longShort ? Number(longShort.shortAccount) * 100 : NaN,
           longShortRatio: longShort ? Number(longShort.longShortRatio) : NaN,
         };
-      } catch {
+      } catch (e) {
+        firstFailure ??= e;
         return null;
       }
     })
   );
-  return rows.filter((r): r is DerivativesRow => r !== null);
+  const ok = rows.filter((r): r is DerivativesRow => r !== null);
+  if (ok.length === 0 && firstFailure) {
+    const msg = firstFailure instanceof Error ? firstFailure.message : String(firstFailure);
+    throw new Error(/HTTP \d+/.test(msg) ? msg : `Binance Futures unreachable (${msg}) — network, VPN or region block`);
+  }
+  return ok;
 }
