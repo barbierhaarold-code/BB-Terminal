@@ -17,10 +17,11 @@ interface Props {
  * backend call needed) and a manual refresh button. */
 export function NewsCategoryPanel({ label, sourceNote, queryKey, fetcher }: Props) {
   const [q, setQ] = useState("");
-  const { data = [], isLoading, error, refetch, isFetching } = useQuery({
+  const { data = [], isPending, error, refetch, isFetching } = useQuery({
     queryKey: ["newshub-news", queryKey],
     queryFn: () => fetcher(),
     staleTime: 60_000,
+    retry: 0, // fetchers already fall back between sources; show the error + Retry button right away
   });
 
   const filtered = useMemo(() => {
@@ -54,9 +55,19 @@ export function NewsCategoryPanel({ label, sourceNote, queryKey, fetcher }: Prop
         </button>
       </div>
       <div className="flex-1 min-h-0 overflow-auto scroll-thin divide-y divide-term-borderSoft text-[12px]">
-        {isLoading && <div className="p-4 text-term-muted uppercase text-[11px] tracking-widest">Loading…</div>}
-        {error && <div className="p-4 text-term-red">{(error as Error).message}</div>}
-        {!isLoading && !error && filtered.map((n, i) => (
+        {isPending && <div className="p-4 text-term-muted uppercase text-[11px] tracking-widest">Loading…</div>}
+        {error && !isPending && (
+          <div className="p-4 text-term-red flex flex-col items-start gap-2">
+            <div><span className="sub-header text-term-red mr-1">ERROR</span>{(error as Error).message}</div>
+            <button
+              onClick={() => refetch()}
+              className="px-2 py-1 border border-term-red/60 text-[11px] uppercase tracking-wider hover:bg-term-red/10"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {!isPending && !error && filtered.map((n, i) => (
           <a
             key={n.id + i}
             href={n.url}
@@ -72,8 +83,8 @@ export function NewsCategoryPanel({ label, sourceNote, queryKey, fetcher }: Prop
             <ExternalLink size={11} className="text-term-muted group-hover:text-term-amber mt-1 shrink-0" />
           </a>
         ))}
-        {!isLoading && !error && filtered.length === 0 && (
-          <div className="p-4 text-term-muted">{q ? "No matching headlines." : "No news."}</div>
+        {!isPending && !error && filtered.length === 0 && (
+          <div className="p-4 text-term-muted">{q ? "No matching headlines." : "No headlines returned."}</div>
         )}
       </div>
     </div>

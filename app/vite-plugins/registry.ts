@@ -5,6 +5,7 @@ import { weatherProxyPlugin } from "./weather";
 import { countryIntelProxyPlugin } from "./countryIntel";
 import { aisProxyPlugin } from "./ais";
 import { gpsJamProxyPlugin } from "./gpsjam";
+import { yahooNewsProxyPlugin } from "./yahooNews";
 import {
   apiCachePlugin, cotProxyPlugin, quantProxyPlugin, spotMetalsPlugin, getXApiProxyPlugin,
   predictionMarketsProxyPlugin, congressProxyPlugin, copilotProxyPlugin, firmsProxyPlugin, wpiProxyPlugin,
@@ -33,5 +34,6 @@ export function proxyPlugins(env: Record<string, string | undefined>): Plugin[] 
     countryIntelProxyPlugin(),
     aisProxyPlugin(env.AISSTREAM_API_KEY, env.AISSTREAM_WS_URL),
     gpsJamProxyPlugin(),
+    yahooNewsProxyPlugin(),
   ];
 }
