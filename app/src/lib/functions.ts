@@ -4,7 +4,7 @@ export type FunctionCode =
   | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
-  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "PORTFOLIO" | "COPILOT" | "MAP";
+  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "PORTFOLIO" | "COPILOT" | "MAP";
 
 export interface FunctionDef {
   code: FunctionCode;
@@ -42,6 +42,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "HEAT", name: "Market Heatmap",        needsSymbol: false, group: "Markets", summary: "Sector→industry→ticker treemap, sized by cap, colored by change" },
   { code: "NH",   name: "News Hub",              needsSymbol: false, group: "Markets", summary: "News, tweets, econ calendar, earnings, corporate, prediction markets, Fed ops, market hours, live TV" },
   { code: "INVEST", name: "Investors / Institutional", needsSymbol: false, group: "Markets", summary: "13F fund holdings, who-holds-a-ticker ranking, insider trading, congressional trading, live on-chain whale trades" },
+  { code: "COT",  name: "Commitments of Traders", needsSymbol: false, group: "Markets", summary: "Official CFTC positioning (weekly) — net by trader group, weekly change, open interest, 3Y/5Y percentile, history chart" },
   { code: "QUANT", name: "Analytics / Quant",   needsSymbol: false, group: "Markets", summary: "Correlation matrix, cointegration/z-score pairs trading, beta & hedge ratio, sector rotation, COT positioning" },
 
   { code: "CURV", name: "US Yield Curve",        needsSymbol: false, group: "Macro", summary: "Treasury par yield curve" },

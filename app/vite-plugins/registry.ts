@@ -6,8 +6,9 @@ import { countryIntelProxyPlugin } from "./countryIntel";
 import { aisProxyPlugin } from "./ais";
 import { gpsJamProxyPlugin } from "./gpsjam";
 import { yahooNewsProxyPlugin } from "./yahooNews";
+import { cotProxyPlugin } from "./cot";
 import {
-  apiCachePlugin, cotProxyPlugin, quantProxyPlugin, spotMetalsPlugin, getXApiProxyPlugin,
+  apiCachePlugin, quantProxyPlugin, spotMetalsPlugin, getXApiProxyPlugin,
   predictionMarketsProxyPlugin, congressProxyPlugin, copilotProxyPlugin, firmsProxyPlugin, wpiProxyPlugin,
 } from "./core";
 
@@ -20,7 +21,7 @@ export function proxyPlugins(env: Record<string, string | undefined>): Plugin[] 
   return [
     proxyAuthPlugin(env),
     apiCachePlugin(),
-    cotProxyPlugin(),
+    cotProxyPlugin(env.CFTC_SOCRATA_APP_TOKEN, env.COT_ALLOW_SIMULATE === "1"),
     quantProxyPlugin(),
     spotMetalsPlugin(env.TWELVE_DATA_API_KEY),
     getXApiProxyPlugin(env.GETX_API_KEY),

@@ -477,43 +477,6 @@ export const fetchSpotSeries = async (symbol: string, interval = "5min"): Promis
     }));
 };
 
-// ────── COT (Commitments of Traders) — gold ──────
-export interface CotSnapshot {
-  /** date of the CFTC Tuesday snapshot this report covers */
-  asOf: string;
-  openInterest: number;
-  nonCommercialLong: number;
-  nonCommercialShort: number;
-  /** week-over-week change vs the prior report */
-  nonCommercialLongChange: number;
-  nonCommercialShortChange: number;
-}
-
-export type CotContract = "gold" | "crude" | "eurusd" | "spx";
-export const COT_CONTRACT_LABELS: Record<CotContract, string> = {
-  gold: "Gold",
-  crude: "WTI Crude",
-  eurusd: "EUR FX",
-  spx: "E-mini S&P 500",
-};
-
-/**
- * COT positioning (legacy futures-only report, Non-Commercial /
- * "large speculator" category), sourced from Tradingster's CFTC mirror via
- * the dev-server proxy in vite.config.ts (Tradingster's page has no API and
- * no CORS headers, so this can't be fetched directly from the browser).
- */
-export const fetchCot = async (contract: CotContract): Promise<CotSnapshot> => {
-  const res = await fetch(`/cot-proxy/${contract}`);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok || !body.results) {
-    throw new ApiError(res.status, body?.warnings?.[0]?.message ?? "Failed to load COT data");
-  }
-  return body.results as CotSnapshot;
-};
-
-export const fetchGoldCot = () => fetchCot("gold");
-
 // ────── News Hub — Pass 2 calendars ──────
 // All free via `nasdaq`/`federal_reserve`/`yfinance` providers — no API key.
 export interface EconCalendarEvent {
