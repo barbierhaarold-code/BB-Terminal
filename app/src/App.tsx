@@ -37,6 +37,7 @@ import { NH } from "@/functions/NH";
 import { RESEARCH } from "@/functions/RESEARCH";
 import { INVEST } from "@/functions/INVEST";
 import { QUANT } from "@/functions/QUANT";
+import { COT } from "@/functions/COT";
 import { PORTFOLIO } from "@/functions/PORTFOLIO";
 import { MAP } from "@/functions/MAP";
 import { Tutorial } from "@/components/Tutorial";
@@ -67,6 +68,7 @@ const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   NH: () => <NH />,
   INVEST: () => <INVEST />,
   QUANT: () => <QUANT />,
+  COT: () => <COT />,
   PORTFOLIO: () => <PORTFOLIO />,
   MAP: () => <MAP />,
 };

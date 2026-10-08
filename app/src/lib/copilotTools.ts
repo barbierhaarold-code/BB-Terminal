@@ -6,7 +6,7 @@
 // field — never a fabricated number (see SYSTEM_PROMPT in copilotConfig.ts).
 // ────────────────────────────────────────────────────────────
 import {
-  fetchSpotQuote, fetchGoldCot, fetchIntraday, SPOT_GOLD_SYMBOL,
+  fetchSpotQuote, fetchIntraday, SPOT_GOLD_SYMBOL,
   fetchQuotes, fetchProfile, fetchHistorical, fetchEconCalendar,
   fetchForexNews, fetchGeneralNews,
   type Quote, type Profile, type Candle,
@@ -25,12 +25,28 @@ import { usePortfolio } from "@/store/portfolioStore";
 import { estimateImpact } from "@/lib/econCalendar";
 import { toYmd } from "@/lib/weekview";
 import type { AnthropicTool } from "@/lib/copilotClient";
+import { getCotSnapshot, cotContract, cotContractSummary, cotSnapshotMeta, isKnownCotKey } from "@/lib/cot";
+import { COT_CONTRACTS } from "@/lib/cotContracts";
 
 export const COPILOT_TOOLS: AnthropicTool[] = [
   {
     name: "get_scalper_snapshot",
-    description: "Current spot XAU/USD (gold) price, which forex sessions (Sydney/Tokyo/London/New York) are open right now and whether we're in a major overlap, latest CFTC COT positioning for gold, and a quick USD-strength (DXY) read. Use this for any question about current gold price, trading session timing, or gold positioning.",
+    description: "Current spot XAU/USD (gold) price, which forex sessions (Sydney/Tokyo/London/New York) are open right now and whether we're in a major overlap, latest official CFTC COT positioning for gold (weekly: positions as of Tuesday, published Friday; not live), and a quick USD-strength (DXY) read. Use this for any question about current gold price, trading session timing, or gold positioning.",
     input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "get_cot_positioning",
+    description: "Official CFTC Commitments of Traders positioning (futures only), the same numbers as the COT page. Without arguments returns every tracked contract (EUR, GBP, JPY, AUD, CAD, CHF, NZD, US Dollar Index, Gold, Silver, WTI, E-mini S&P 500, E-mini Nasdaq-100, Bitcoin) with the headline trader group's net position, weekly change, open interest and 3-year / 5-year percentile. With `contract` returns that contract's full breakdown by trader group. COT is WEEKLY: positions are as of Tuesday and published the following Friday 3:30 pm ET, so never describe it as live; always state the 'positions as of' date. Percentiles say how extreme positioning is versus its own history, not a trade signal. If the result says a contract or the source is unavailable (or the fallback source is in use), relay that plainly.",
+    input_schema: {
+      type: "object",
+      properties: {
+        contract: {
+          type: "string",
+          enum: COT_CONTRACTS.map((c) => c.key),
+          description: "Optional contract key: eur, gbp, jpy, aud, cad, chf, nzd, dxy, es, nq, btc, gold, silver, wti. Omit for the overview of all contracts.",
+        },
+      },
+    },
   },
   {
     name: "get_track_record_stats",
@@ -109,7 +125,7 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
 async function toolScalperSnapshot() {
   const [spot, cot, dxyCandles] = await Promise.all([
     fetchSpotQuote(SPOT_GOLD_SYMBOL).catch((e: Error) => ({ available: false as const, reason: e.message })),
-    fetchGoldCot().catch((e: Error) => ({ available: false as const, reason: e.message })),
+    toolCotGold(),
     fetchIntraday(DXY.symbol, { kind: "metal" }).catch(() => undefined as Candle[] | undefined),
   ]);
 
@@ -131,6 +147,50 @@ async function toolScalperSnapshot() {
     cotGold: cot,
     dxyRegime,
     asOf: now.toISOString(),
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// get_cot_positioning (+ the gold COT slice of get_scalper_snapshot)
+// Both read the SAME cached snapshot as the COT page / Gold Intelligence / Quant
+// (lib/cot.ts), so the Copilot can never quote different numbers than the UI.
+// ────────────────────────────────────────────────────────────
+async function toolCotGold() {
+  try {
+    const snap = await getCotSnapshot();
+    const gold = cotContract(snap, "gold");
+    if (!gold) return { available: false as const, reason: "Gold is missing from the COT snapshot." };
+    return { ...cotContractSummary(snap, gold), meta: cotSnapshotMeta(snap) };
+  } catch (e) {
+    return { available: false as const, reason: (e as Error).message };
+  }
+}
+
+async function toolCotPositioning(input: { contract?: string }) {
+  let snap;
+  try { snap = await getCotSnapshot(); }
+  catch (e) { return { available: false, reason: (e as Error).message }; }
+
+  const meta = cotSnapshotMeta(snap);
+  if (input.contract) {
+    const key = input.contract.toLowerCase();
+    if (!isKnownCotKey(key)) return { available: false, reason: `Unknown contract "${input.contract}". Valid keys: ${COT_CONTRACTS.map((c) => c.key).join(", ")}.` };
+    const c = cotContract(snap, key);
+    if (!c) return { available: false, reason: `Contract "${key}" is missing from the COT snapshot.` };
+    return { ...cotContractSummary(snap, c), meta };
+  }
+  return {
+    meta,
+    contracts: snap.contracts.map((c) => {
+      const s = cotContractSummary(snap, c);
+      if (!s.available) return s;
+      const head = s.categories.find((r) => r.category === s.headlineCategory);
+      return {
+        contract: s.contract, key: s.key, positionsAsOf: s.positionsAsOf, headlineCategory: s.headlineCategory,
+        net: head?.net, netWeeklyChange: head?.netWeeklyChange, percentile3y: head?.percentile3y, percentile5y: head?.percentile5y,
+        openInterest: s.openInterest,
+      };
+    }),
   };
 }
 
@@ -429,6 +489,7 @@ function toolPrefillTrackRecord(input: Record<string, unknown>) {
 export async function runCopilotTool(name: string, input: Record<string, unknown>): Promise<unknown> {
   switch (name) {
     case "get_scalper_snapshot": return toolScalperSnapshot();
+    case "get_cot_positioning": return toolCotPositioning(input);
     case "get_track_record_stats": return toolTrackRecordStats(input);
     case "get_news_headlines": return toolNewsHeadlines(input);
     case "get_econ_calendar": return toolEconCalendar(input);

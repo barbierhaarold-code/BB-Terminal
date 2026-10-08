@@ -1,8 +1,11 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import {
-  fetchHistorical, fetchFxHistorical, fetchCryptoHistorical, fetchGoldCot,
+  fetchHistorical, fetchFxHistorical, fetchCryptoHistorical,
   type Candle,
 } from "@/lib/api";
+import { useCotSnapshot, cotContract, cotCategory, fmtCotNum, fmtCotSigned, pctLabel } from "@/lib/cot";
+import { CotStatus, CotLoading, CotError } from "@/components/CotStatus";
+import { useWorkspace } from "@/store/workspaceStore";
 import { rollingCorrelation, correlationSignal, type CorrelationTone } from "@/lib/correlation";
 import { GOLD_FUT, DXY } from "@/lib/forex";
 import { fmtPct, fmtInt, fmtDate } from "@/lib/format";
@@ -108,11 +111,9 @@ export function GoldIntelligence() {
     })),
   });
 
-  const cot = useQuery({
-    queryKey: ["gi-cot-gold"],
-    queryFn: fetchGoldCot,
-    staleTime: 6 * 60 * 60_000,
-  });
+  const openTab = useWorkspace((st) => st.openTab);
+  const cotQ = useCotSnapshot();
+  const cotGold = cotContract(cotQ.data, "gold");
 
   const goldData = gold.data ?? [];
   const goldPct = dailyPctChange(goldData);
@@ -205,31 +206,35 @@ export function GoldIntelligence() {
 
         {/* COT report */}
         <div className="border border-term-borderSoft">
-          <div className="px-2 py-1.5 flex items-center justify-between border-b border-term-borderSoft">
-            <span className="sub-header">COT · GOLD (NON-COMMERCIAL) · TRADINGSTER / CFTC</span>
-            {cot.data && <span className="sub-header normal-case tracking-normal font-normal">as of {fmtDate(cot.data.asOf)}</span>}
+          <div className="px-2 py-1.5 flex items-center justify-between gap-3 flex-wrap border-b border-term-borderSoft">
+            <span className="sub-header">
+              COT · GOLD ({cotGold?.available ? cotCategory(cotGold).label.toUpperCase() : "MANAGED MONEY"}) · CFTC · FUTURES ONLY
+            </span>
+            <button onClick={() => openTab("COT")} className="sub-header normal-case tracking-normal font-normal hover:text-term-amber">
+              Open full COT report →
+            </button>
           </div>
-          {cot.isLoading ? (
-            <div className="p-3 text-term-muted uppercase tracking-widest text-[11px]">Loading COT report…</div>
-          ) : cot.error || !cot.data ? (
-            <div className="p-3 text-term-red text-[12px]">{(cot.error as Error)?.message ?? "COT report unavailable."}</div>
+          {cotQ.isPending ? (
+            <CotLoading />
+          ) : cotQ.isError ? (
+            <CotError error={cotQ.error} onRetry={() => cotQ.refetch()} fetching={cotQ.isFetching} />
+          ) : !cotQ.data || !cotGold ? (
+            <div className="p-3 text-term-muted text-[11px] uppercase tracking-widest">No COT data available.</div>
+          ) : !cotGold.available ? (
+            <div className="p-3 text-term-muted text-[12px]">Gold COT: n/a — {cotGold.reason}</div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 p-2">
-              <CotCell label="LONGS" value={fmtInt(cot.data.nonCommercialLong)} change={cot.data.nonCommercialLongChange} />
-              <CotCell label="SHORTS" value={fmtInt(cot.data.nonCommercialShort)} change={cot.data.nonCommercialShortChange} />
-              <CotCell
-                label="NET"
-                value={fmtInt(cot.data.nonCommercialLong - cot.data.nonCommercialShort)}
-                change={cot.data.nonCommercialLongChange - cot.data.nonCommercialShortChange}
-              />
-              <CotCell
-                label="% LONGS"
-                value={fmtPct(
-                  (cot.data.nonCommercialLong / (cot.data.nonCommercialLong + cot.data.nonCommercialShort)) * 100,
-                  1
-                ).replace("+", "")}
-              />
-              <CotCell label="OPEN INTEREST" value={fmtInt(cot.data.openInterest)} />
+            <div className="p-2 flex flex-col gap-2">
+              <CotStatus snap={cotQ.data} compact />
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                <CotCell label={`${cotCategory(cotGold).label.toUpperCase()} LONGS`} value={fmtCotNum(cotCategory(cotGold).long)} change={cotCategory(cotGold).changeLong ?? undefined} />
+                <CotCell label={`${cotCategory(cotGold).label.toUpperCase()} SHORTS`} value={fmtCotNum(cotCategory(cotGold).short)} change={cotCategory(cotGold).changeShort ?? undefined} />
+                <CotCell label={`${cotCategory(cotGold).label.toUpperCase()} NET`} value={fmtCotNum(cotCategory(cotGold).net)} change={cotCategory(cotGold).changeNet ?? undefined} />
+                <CotCell label={`${cotCategory(cotGold).label.toUpperCase()} NET PCTL 3Y / 5Y`} value={`${pctLabel(cotCategory(cotGold).pct3y)} / ${pctLabel(cotCategory(cotGold).pct5y)}`} />
+                <CotCell label={`${cotCategory(cotGold).label.toUpperCase()} % LONG`} value={cotCategory(cotGold).long + cotCategory(cotGold).short > 0
+                  ? `${((cotCategory(cotGold).long / (cotCategory(cotGold).long + cotCategory(cotGold).short)) * 100).toFixed(1)}%`
+                  : "n/a"} />
+                <CotCell label="OPEN INTEREST" value={fmtCotNum(cotGold.openInterest)} change={cotGold.openInterestChange ?? undefined} />
+              </div>
             </div>
           )}
         </div>
@@ -260,7 +265,7 @@ function CotCell({ label, value, change }: { label: string; value: string; chang
       <div className="num text-[15px] text-term-heading mt-0.5">{value}</div>
       {change != null && (
         <div className={cn("num text-[10px] mt-0.5", change >= 0 && "up", change < 0 && "down")}>
-          {change >= 0 ? "+" : ""}{fmtInt(change)} WoW
+          {fmtCotSigned(change)} WoW
         </div>
       )}
     </div>

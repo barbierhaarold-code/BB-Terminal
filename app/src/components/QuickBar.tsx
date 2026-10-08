@@ -13,7 +13,7 @@ import { cn } from "@/lib/cn";
 interface Category { label: string; codes: FunctionCode[]; }
 const CATEGORIES: Category[] = [
   { label: "Research", codes: ["INTEL", "RESEARCH", "DES", "GP", "QR", "HP", "FA", "KEY", "DVD", "EE"] },
-  { label: "Markets", codes: ["WEI", "MOV", "QCARD", "HEAT", "INVEST", "CURV"] },
+  { label: "Markets", codes: ["WEI", "MOV", "QCARD", "HEAT", "INVEST", "CURV", "COT"] },
   { label: "Forex", codes: ["FXC"] },
   { label: "Crypto", codes: ["CRYPTO"] },
   { label: "News", codes: ["NI", "NH"] },

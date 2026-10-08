@@ -85,6 +85,14 @@ const STEPS: Step[] = [
     open: { code: "QUANT", label: "Open Analytics" },
   },
   {
+    title: "Commitments of Traders (COT)",
+    body: [
+      "Official CFTC positioning: how hedge funds, banks and other trader groups are positioned in FX, indices, Bitcoin, gold, silver and oil futures, with a percentile showing how stretched each reading is versus the last 3 and 5 years.",
+      "It is weekly, not live: positions are as of Tuesday and published the following Friday, and the page always shows both dates. An extreme reading describes crowding, not a signal.",
+    ],
+    open: { code: "COT", label: "Open COT" },
+  },
+  {
     title: "Locked features",
     body: [
       "Some features (for example the AI Copilot, Tweets and Vessels on the map) are members-only. A locked panel shows a \"Members only\" card instead of data. It is not an error.",
