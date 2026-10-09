@@ -2,8 +2,14 @@ import type { Economy, Indicator, SeriesDef, GapRow, LagRule } from "./types";
 
 // ────────────────────────────────────────────────────────────
 // THE one place series are defined. Adding a series = adding a row here (and,
-// for a new aggregator, an adapter on the server). Verified against live
-// DBnomics queries on 2026-10-09; see the report for the licence findings.
+// for a new provider, an adapter on the server). Series come from DBnomics or
+// directly from the provider's own API; the UI and the maths never look at which.
+// Verified against live queries on 2026-10-09.
+//
+// Licence policy for this non-commercial terminal: each series records its provider,
+// attribution text and, only where a provider states it plainly, a one-line licence
+// note. Licences are not audited and never exclude a source. Bot challenges, logins,
+// paywalls and HTML scraping do exclude one.
 //
 // DESCRIPTIVE data only: nothing here forecasts, scores or colours a value.
 // ────────────────────────────────────────────────────────────
@@ -29,13 +35,18 @@ export const INDICATOR_NAME: Record<Indicator, string> = Object.fromEntries(INDI
 const DAILY: LagRule = { days: 7, basis: "observation", why: "daily series: a weekend plus a holiday, plus the aggregator's refresh delay" };
 const MONTHLY: LagRule = { days: 55, basis: "observation", why: "monthly release about 3 weeks after month end, so the latest period can be up to ~55 days old before the next one" };
 const QUARTERLY_AU_CPI: LagRule = { days: 120, basis: "observation", why: "quarterly CPI is released about 4 weeks after quarter end: up to ~120 days old before the next one" };
+const QUARTERLY_LABOUR: LagRule = { days: 135, basis: "observation", why: "quarterly labour-force figure published about 5 weeks after quarter end, then republished by the OECD/FRED with a further delay: up to ~135 days old before the next one" };
+const BIS_POLICY: LagRule = { days: 14, basis: "observation", why: "BIS fills the daily policy-rate series up to its last update, normally within a few days of the central bank; 14 days leaves room for its update schedule" };
+const SNB_POLICY: LagRule = { days: 14, basis: "observation", why: "the SNB data-portal cube is published weekly and ends on the previous business day, so a rate that has not changed can be up to ~10 days behind; 14 days leaves room for a missed week" };
 const STEP: LagRule = { days: 45, basis: "refresh", why: "policy rates change only at meetings (about every 6 weeks); judged by the aggregator's last refresh, not by the date of the last decision" };
 
 const dbn = {
   adapter: "dbnomics" as const,
   unit: "%" as const,
 };
+const direct = <A extends Exclude<SeriesDef["adapter"], "dbnomics">>(adapter: A) => ({ adapter, unit: "%" as const });
 const VIA = "via DBnomics";
+const NOT_AUDITED = "Licence not audited (non-commercial terminal); attribution kept.";
 /** Shown next to every value computed from a rounded index. */
 export const COMPUTED_ROUNDING_NOTE = "computed · may differ by ±0.1 pp from the official figure (index rounded to 0.1)";
 
@@ -122,68 +133,147 @@ export const SERIES: SeriesDef[] = [
     label: "Australian Government 10-year bond yield", basis: "level, %", decimals: 2, provider: "Reserve Bank of Australia",
     attribution: `Source: Reserve Bank of Australia (CC BY 4.0), ${VIA}. The RBA does not endorse this terminal`,
     licenceNote: "CC BY 4.0 plus RBA financial-data terms: no implied endorsement.", lag: DAILY },
+
+  // ═════════ Direct primary-source series (no aggregator in between) ═════════
+
+  // ── United States: BLS Public Data API v2 (needs BLS_API_KEY) ──
+  { ...direct("bls"), id: "us.cpi", economy: "US", indicator: "cpi_yoy", code: "CUUR0000SA0", frequency: "monthly", kind: "level", transform: "yoy",
+    label: "CPI-U, all items (not seasonally adjusted)", basis: "y/y, % (computed from the published index, 3 decimals)", decimals: 1, provider: "U.S. Bureau of Labor Statistics",
+    attribution: "Source: U.S. Bureau of Labor Statistics (Public Data API). Year-on-year change computed by this terminal; BLS has not endorsed or checked this calculation",
+    licenceNote: "BLS states its website information is in the public domain unless annotated otherwise.", valueNote: "computed from the published index (3 decimals): should match the BLS 12-month change to the displayed decimal", lag: MONTHLY },
+  { ...direct("bls"), id: "us.unemp", economy: "US", indicator: "unemployment", code: "LNS14000000", frequency: "monthly", kind: "level", transform: "none",
+    label: "Unemployment rate, seasonally adjusted", basis: "level, %", decimals: 1, provider: "U.S. Bureau of Labor Statistics",
+    attribution: "Source: U.S. Bureau of Labor Statistics (Current Population Survey, Public Data API)",
+    licenceNote: "BLS states its website information is in the public domain unless annotated otherwise.", lag: MONTHLY },
+
+  // ── Euro Area: Eurostat dissemination API ──
+  { ...direct("eurostat"), id: "ea.cpi", economy: "EA", indicator: "cpi_yoy", code: "prc_hicp_minr?geo=EA&unit=RCH_A&coicop18=TOTAL", frequency: "monthly", kind: "level", transform: "none",
+    label: "HICP, all items", basis: "y/y, % (published by Eurostat)", decimals: 1, provider: "Eurostat",
+    attribution: "Source: Eurostat, HICP (prc_hicp_minr), ECOICOP ver. 2",
+    licenceNote: "Eurostat: free reuse with the source acknowledged.", lag: MONTHLY },
+  { ...direct("eurostat"), id: "ea.unemp", economy: "EA", indicator: "unemployment", code: "une_rt_m?geo=EA21&s_adj=SA&age=TOTAL&sex=T&unit=PC_ACT", frequency: "monthly", kind: "level", transform: "none",
+    label: "Unemployment rate, seasonally adjusted, 15–74 (euro area, 21 members)", basis: "level, % of active population", decimals: 1, provider: "Eurostat",
+    attribution: "Source: Eurostat, unemployment by sex and age, monthly (une_rt_m)",
+    licenceNote: "Eurostat: free reuse with the source acknowledged.", lag: MONTHLY },
+
+  // ── United Kingdom: Bank of England IADB ──
+  { ...direct("boe"), id: "uk.policy", economy: "UK", indicator: "policy_rate", code: "IUDBEDR", frequency: "daily", kind: "level", transform: "none",
+    label: "Official Bank Rate", basis: "level, %", decimals: 2, provider: "Bank of England",
+    attribution: "Source: Bank of England, Interactive Statistical Database (IUDBEDR, official Bank Rate)",
+    licenceNote: NOT_AUDITED, lag: DAILY },
+
+  // ── Canada: Bank of Canada Valet + Statistics Canada WDS ──
+  { ...direct("boc"), id: "ca.policy", economy: "CA", indicator: "policy_rate", code: "V39079", frequency: "daily", kind: "level", transform: "none",
+    label: "Target for the overnight rate", basis: "level, %", decimals: 2, provider: "Bank of Canada",
+    attribution: "Source: Bank of Canada, Valet API (V39079, target for the overnight rate)",
+    licenceNote: NOT_AUDITED, lag: DAILY },
+  { ...direct("statcan"), id: "ca.cpi", economy: "CA", indicator: "cpi_yoy", code: "41690973", frequency: "monthly", kind: "level", transform: "yoy",
+    label: "CPI, all items (not seasonally adjusted)", basis: "y/y, % (computed from the published index, rounded to 0.1: can differ from the official y/y by ~0.1 pp)", decimals: 1, provider: "Statistics Canada",
+    attribution: "Source: Statistics Canada, Table 18-10-0004-01 (vector v41690973). Year-on-year change computed by this terminal. Adapted from Statistics Canada under the Statistics Canada Open Licence; this does not constitute an endorsement by Statistics Canada",
+    licenceNote: "Statistics Canada Open Licence.", valueNote: COMPUTED_ROUNDING_NOTE, lag: MONTHLY },
+  { ...direct("statcan"), id: "ca.unemp", economy: "CA", indicator: "unemployment", code: "2062815", frequency: "monthly", kind: "level", transform: "none",
+    label: "Unemployment rate, seasonally adjusted, 15+", basis: "level, %", decimals: 1, provider: "Statistics Canada",
+    attribution: "Source: Statistics Canada, Table 14-10-0287-01 (vector v2062815, Labour Force Survey). Adapted from Statistics Canada under the Statistics Canada Open Licence; this does not constitute an endorsement by Statistics Canada",
+    licenceNote: "Statistics Canada Open Licence.", lag: MONTHLY },
+
+  // ── Japan: BIS policy-rate dataset (the BoJ API exposes the market call rate, not the policy target) + Statistics Bureau dashboard ──
+  { ...direct("bis"), id: "jp.policy", economy: "JP", indicator: "policy_rate", code: "D.JP", frequency: "daily", kind: "level", transform: "none",
+    label: "Policy rate (uncollateralised overnight call rate target)", basis: "level, %", decimals: 2, provider: "Bank of Japan, via the Bank for International Settlements",
+    attribution: "Source: Bank for International Settlements, central bank policy rates (WS_CBPOL; reported by the Bank of Japan)",
+    licenceNote: NOT_AUDITED, lag: BIS_POLICY },
+  { ...direct("jpstat"), id: "jp.unemp", economy: "JP", indicator: "unemployment", code: "0301010000020020010", frequency: "monthly", kind: "level", transform: "none",
+    label: "Unemployment rate, both sexes, seasonally adjusted", basis: "level, %", decimals: 1, provider: "Statistics Bureau of Japan",
+    attribution: "Source: Statistics Bureau of Japan, Labour Force Survey (Statistics Dashboard API)",
+    licenceNote: NOT_AUDITED, lag: MONTHLY },
+
+  // ── New Zealand: BIS (RBNZ policy rate), IMF (CPI), FRED/OECD (unemployment) ──
+  { ...direct("bis"), id: "nz.policy", economy: "NZ", indicator: "policy_rate", code: "D.NZ", frequency: "daily", kind: "level", transform: "none",
+    label: "Official Cash Rate", basis: "level, %", decimals: 2, provider: "Reserve Bank of New Zealand, via the Bank for International Settlements",
+    attribution: "Source: Bank for International Settlements, central bank policy rates (WS_CBPOL; reported by the Reserve Bank of New Zealand)",
+    licenceNote: NOT_AUDITED, lag: BIS_POLICY },
+  { ...direct("imf"), id: "nz.cpi", economy: "NZ", indicator: "cpi_yoy", code: "CPI/NZL.CPI._T.YOY_PCH_PA_PT.Q", frequency: "quarterly", kind: "level", transform: "none",
+    label: "CPI, all items", basis: "y/y, % (published by the IMF)", decimals: 1, provider: "International Monetary Fund (CPI dataset, from national statistics)",
+    attribution: "Source: International Monetary Fund, Consumer Price Index (IMF.STA:CPI), compiled from national statistics",
+    licenceNote: NOT_AUDITED, lag: QUARTERLY_AU_CPI },
+  { ...direct("fred"), id: "nz.unemp", economy: "NZ", indicator: "unemployment", code: "LRHUTTTTNZQ156S", frequency: "quarterly", kind: "level", transform: "none",
+    label: "Unemployment rate, 15+ (harmonised, quarterly)", basis: "level, %", decimals: 1, provider: "OECD harmonised unemployment, via FRED (Federal Reserve Bank of St. Louis)",
+    attribution: "Source: Organisation for Economic Co-operation and Development (Infra-annual labour statistics), retrieved from FRED, Federal Reserve Bank of St. Louis",
+    licenceNote: NOT_AUDITED, lag: QUARTERLY_LABOUR },
+
+  // ── Switzerland: SNB data portal, FRED ──
+  { ...direct("snb"), id: "ch.policy", economy: "CH", indicator: "policy_rate", code: "snbgwdzid:LZ", frequency: "daily", kind: "level", transform: "none",
+    label: "SNB policy rate", basis: "level, %", decimals: 2, provider: "Swiss National Bank",
+    attribution: "Source: Swiss National Bank, data portal (SNB policy rate)",
+    licenceNote: NOT_AUDITED, lag: SNB_POLICY },
+  { ...direct("snb"), id: "ch.cpi", economy: "CH", indicator: "cpi_yoy", code: "plkoprinfla:TLK", frequency: "monthly", kind: "level", transform: "none",
+    label: "Inflation, national consumer price index", basis: "y/y, % (published)", decimals: 1, provider: "Swiss Federal Statistical Office, via the SNB data portal",
+    attribution: "Source: Swiss Federal Statistical Office, published through the Swiss National Bank data portal",
+    licenceNote: NOT_AUDITED, lag: MONTHLY },
+  { ...direct("snb"), id: "ch.core", economy: "CH", indicator: "core_cpi_yoy", code: "plkoprinfla:KGM", frequency: "monthly", kind: "level", transform: "none",
+    label: "Core inflation, trimmed mean (SNB)", basis: "y/y, % (SNB calculation)", decimals: 1, provider: "Swiss National Bank",
+    attribution: "Source: Swiss National Bank, data portal (core inflation, trimmed mean)",
+    licenceNote: NOT_AUDITED, lag: MONTHLY },
+  { ...direct("fred"), id: "ch.gdp", economy: "CH", indicator: "gdp_growth", code: "CLVMNACSCAB1GQCH", frequency: "quarterly", kind: "level", transform: "yoy",
+    label: "Real GDP growth", basis: "y/y, % (computed from chain-linked volumes)", decimals: 1, provider: "Eurostat national accounts, via FRED (Federal Reserve Bank of St. Louis)",
+    attribution: "Source: Eurostat (real GDP, chain-linked volumes), retrieved from FRED, Federal Reserve Bank of St. Louis. Year-on-year change computed by this terminal",
+    licenceNote: NOT_AUDITED, valueNote: "computed from chain-linked volumes (levels, not rounded): matches the official y/y to the displayed decimal",
+    lag: { days: 160, basis: "observation", why: "GDP ~60 days after quarter end, then republished by Eurostat/FRED: up to ~160 days old before the next one" } },
+  { ...direct("fred"), id: "ch.unemp", economy: "CH", indicator: "unemployment", code: "LRHUTTTTCHQ156S", frequency: "quarterly", kind: "level", transform: "none",
+    label: "Unemployment rate, 15+ (harmonised, quarterly)", basis: "level, %", decimals: 1, provider: "OECD harmonised unemployment, via FRED (Federal Reserve Bank of St. Louis)",
+    attribution: "Source: Organisation for Economic Co-operation and Development (Infra-annual labour statistics), retrieved from FRED, Federal Reserve Bank of St. Louis",
+    licenceNote: NOT_AUDITED, lag: QUARTERLY_LABOUR },
 ];
+
 
 export const SERIES_BY_ID: Record<string, SeriesDef> = Object.fromEntries(SERIES.map((s) => [s.id, s]));
 
-// ───────────── Coverage gaps (checked against live DBnomics queries on 2026-10-09) ─────────────
+// ───────────── Coverage gaps (checked against live queries on 2026-10-09) ─────────────
 
-const OECD_X = "OECD is excluded for v1 (its terms could not be established and its DBnomics mirror was last indexed June 2026 with data to Apr–May 2026).";
 type GapSpec = Omit<GapRow, "economy" | "indicator">;
 const no = (reason: string): GapSpec => ({ kind: "no_series", reason });
-const excluded = (reason: string): GapSpec => ({ kind: "excluded_provider", reason });
-const stale = (reason: string): GapSpec => ({ kind: "stale_mirror", reason });
 const notPinned = (reason: string): GapSpec => ({ kind: "not_pinned", reason });
 
-const BLS_STALE = "The BLS mirror on DBnomics ends January 2025 (about 20 months old), and OECD is excluded for v1.";
-const NO_OFFICIAL_RATE = (bank: string) => `${bank} is not on DBnomics with a policy-rate series; the BIS series ends June 2025 and the RBA international table ends January 2024.`;
+const OECD_BLOCKED = "The OECD SDMX API (sdmx.oecd.org) answered a Cloudflare bot challenge (HTTP 403) from this network on 2026-10-09; this terminal does not bypass bot challenges.";
+const OUT_OF_SCOPE = "Outside the cells covered in this step; no endpoint was evaluated for it.";
 
+/** Cells that have no series, with the reason. Cells with a series that is currently unavailable are reported by the page from the live error instead. */
 export const KNOWN_GAPS: Partial<Record<Economy, Partial<Record<Indicator, GapSpec>>>> = {
   US: {
-    cpi_yoy: stale(BLS_STALE), core_cpi_yoy: stale(BLS_STALE), unemployment: stale(BLS_STALE),
+    core_cpi_yoy: notPinned("BLS core CPI (CUUR0000SA0L1E) could be served by the same BLS adapter; not wired in this step."),
   },
   EA: {
-    cpi_yoy: stale("The ECB consumer-price series on DBnomics ends December 2025 (about 9 months old, more than twice the expected lag)."),
-    core_cpi_yoy: stale("The ECB consumer-price series on DBnomics ends December 2025 (about 9 months old)."),
-    unemployment: stale("The Eurostat mirror on DBnomics ends November 2025 (indexed January 2026, about 10 months old)."),
+    core_cpi_yoy: notPinned("Eurostat publishes core HICP (excluding energy, food, alcohol and tobacco) in the same dataset as headline HICP; not wired in this step."),
   },
   UK: {
-    policy_rate: no(NO_OFFICIAL_RATE("The Bank of England")),
-    core_cpi_yoy: notPinned("ONS publishes a core CPI series, but its code was not pinned and verified for v1."),
-    yield_10y: no("No free, licensed 10-year gilt yield series on DBnomics; " + OECD_X),
+    core_cpi_yoy: notPinned("ONS publishes a core CPI series, but its code was not pinned and verified."),
+    yield_10y: no("No 10-year gilt yield series was found on DBnomics, and no other endpoint was evaluated in this step."),
   },
   JP: {
-    policy_rate: no(NO_OFFICIAL_RATE("The Bank of Japan")),
-    unemployment: no("Only levels (persons) are available on DBnomics, not the unemployment rate; not derived in v1."),
-    gdp_growth: no("No Cabinet Office GDP series on DBnomics; " + OECD_X),
-    yield_10y: no("No free, licensed 10-year JGB yield series on DBnomics; " + OECD_X),
+    gdp_growth: no(`No keyless Cabinet Office GDP endpoint was found. ${OECD_BLOCKED}`),
+    yield_10y: no(`No keyless 10-year JGB yield endpoint was found. ${OECD_BLOCKED}`),
   },
   CA: {
-    policy_rate: no(NO_OFFICIAL_RATE("The Bank of Canada") + " Its DBnomics provider only carries staff projections."),
-    cpi_yoy: no("Statistics Canada's DBnomics tables do not include headline CPI; " + OECD_X),
-    core_cpi_yoy: no("Statistics Canada's DBnomics tables do not include CPI; " + OECD_X),
-    unemployment: no("Statistics Canada's DBnomics tables do not include the monthly labour force survey headline; " + OECD_X),
-    gdp_growth: notPinned("Statistics Canada table 36100104 is on DBnomics, but the series was not pinned and verified for v1."),
-    yield_10y: no("No free, licensed 10-year yield series on DBnomics; " + OECD_X),
+    core_cpi_yoy: notPinned("Statistics Canada publishes CPI-trim and CPI-median through the same vector API as headline CPI; not wired in this step."),
+    gdp_growth: notPinned("Statistics Canada table 36100104 is on its vector API, but the series was not pinned and verified."),
+    yield_10y: no("No 10-year yield series was found on DBnomics, and no other endpoint was evaluated in this step."),
   },
   AU: {},
-  NZ: {},
-  CH: {},
+  NZ: {
+    core_cpi_yoy: no(OUT_OF_SCOPE),
+    gdp_growth: no(`No fresh source: the IMF national-accounts dataset and FRED (OECD) both end with Q1 2026 (about 190 days old, over the 160-day rule); the Stats NZ API answered HTTP 502 and the RBNZ file server HTTP 403. ${OECD_BLOCKED}`),
+    yield_10y: no(OUT_OF_SCOPE),
+  },
+  CH: {
+    yield_10y: no(OUT_OF_SCOPE),
+  },
 };
 
-const NZ_ALL = "The Reserve Bank of New Zealand and Stats NZ are not on DBnomics; " + OECD_X;
-const CH_ALL = "The Swiss National Bank is not on DBnomics; SECO is excluded (reproduction requires the copyright holder's prior written consent); " + OECD_X;
-
-/** Static reason for a cell with no series in v1. */
+/** Static reason for a cell with no series. */
 export function knownGap(economy: Economy, indicator: Indicator): GapSpec {
-  const hit = KNOWN_GAPS[economy]?.[indicator];
-  if (hit) return hit;
-  if (economy === "NZ") return no(NZ_ALL);
-  if (economy === "CH") return excluded(CH_ALL);
-  return no("No free, licensed, fresh series was found on DBnomics for this cell.");
+  return KNOWN_GAPS[economy]?.[indicator] ?? no("No free, fresh series was found for this cell.");
 }
 
 export const STALE_RULE_TEXT =
   "Each series has an expected lag: the worst-case normal age of its latest observation (period length plus publication delay). "
   + "Older than that, the row is flagged STALE and stays in the table. Older than twice the lag, it leaves the table and appears under Coverage gaps. "
-  + "Policy rates change only at meetings, so they are judged by when the aggregator last refreshed them rather than by the date of the last decision.";
+  + "Step-series policy rates that are mirrored by DBnomics are judged by when the aggregator last refreshed them rather than by the date of the last decision; policy rates fetched directly are daily series, judged by the date of their latest observation.";

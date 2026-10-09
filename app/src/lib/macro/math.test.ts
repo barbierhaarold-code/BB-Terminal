@@ -188,12 +188,30 @@ describe("buildViews (page derivation)", () => {
   it("lists every cell that is not shown, with a reason, and never an empty grid", () => {
     const v = buildViews(snapOf({ "uk.cpi": [["2026-07", 2.9], ["2026-08", 3.1]] }), NOW);
     expect(v.shown.map((s) => s.def.id)).toEqual(["uk.cpi"]);
-    // 8 economies × 6 indicators = 48 cells; one shown; the other 17 configured series are missing from the response → fetch_error
+    // 8 economies × 6 indicators = 48 cells; one shown; the other configured series are missing from the response → fetch_error
     expect(v.gaps.length + v.shown.length).toBe(48);
     expect(v.gaps.every((g) => g.reason.length > 10)).toBe(true);
     expect(v.gaps.find((g) => g.economy === "AU" && g.indicator === "policy_rate")?.kind).toBe("fetch_error");
-    expect(v.gaps.find((g) => g.economy === "NZ" && g.indicator === "cpi_yoy")?.kind).toBe("no_series");
-    expect(v.gaps.find((g) => g.economy === "CH" && g.indicator === "gdp_growth")?.kind).toBe("excluded_provider");
+    expect(v.gaps.find((g) => g.economy === "NZ" && g.indicator === "cpi_yoy")?.kind).toBe("fetch_error"); // configured but missing from this response
+    expect(v.gaps.find((g) => g.economy === "NZ" && g.indicator === "gdp_growth")?.kind).toBe("no_series"); // no fresh source exists
+    expect(v.gaps.find((g) => g.economy === "NZ" && g.indicator === "gdp_growth")?.reason).toMatch(/Cloudflare bot challenge/);
+  });
+  it("surfaces a missing or rejected API key as its own gap kind and access problem, never as a silent empty cell", () => {
+    const missing = adapter("us.cpi", [], { ok: false, error: "API key missing: BLS_API_KEY is not set.", errorKind: "key_missing" });
+    const rejected = adapter("us.unemp", [], { ok: false, error: "BLS rejected the API key.", errorKind: "key_rejected" });
+    const v = buildViews({ series: [missing, rejected] }, NOW);
+    expect(v.gaps.find((g) => g.economy === "US" && g.indicator === "cpi_yoy")?.kind).toBe("key_missing");
+    expect(v.gaps.find((g) => g.economy === "US" && g.indicator === "unemployment")?.kind).toBe("key_rejected");
+    expect(v.accessProblems.map((p) => p.kind).sort()).toEqual(["key_missing", "key_rejected"]);
+    expect(v.accessProblems.find((p) => p.kind === "key_missing")?.seriesIds).toEqual(["us.cpi"]);
+  });
+  it("a series served through a fallback route is shown normally and carries a non-blocking notice (not a gap, not an access problem)", () => {
+    const notice = { kind: "key_rejected" as const, message: "API key rejected: using keyless v1." };
+    const v = buildViews({ series: [adapter("us.unemp", obs([["2026-08", 4.1], ["2026-09", 4.2]]), { notice })] }, NOW);
+    expect(v.shown.map((s) => s.def.id)).toEqual(["us.unemp"]);
+    expect(v.accessProblems).toEqual([]);
+    expect(v.notices).toMatchObject([{ kind: "key_rejected", seriesIds: ["us.unemp"] }]);
+    expect(v.gaps.find((g) => g.economy === "US" && g.indicator === "unemployment")).toBeUndefined();
   });
   it("moves a series older than twice its lag from the table to Coverage gaps", () => {
     const v = buildViews(snapOf({ "ea.gdp": [["2025-Q3", 1.4]] }), NOW);

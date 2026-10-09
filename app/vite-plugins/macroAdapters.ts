@@ -1,17 +1,20 @@
 import { canonicalPeriod, periodStart } from "../src/lib/macro/math";
-import type { AdapterSeries, Observation, SeriesDef } from "../src/lib/macro/types";
+import type { AdapterSeries, ErrorKind, Observation, SeriesDef } from "../src/lib/macro/types";
 import { fetchWithTimeout } from "./shared";
 
 // ────────────────────────────────────────────────────────────
 // Macro adapters. An adapter turns a list of series definitions into NORMALIZED
 // observations (canonical period, finite value, provider, source URL, refreshed-at,
-// retrieved-at) and nothing else: no maths, no judgement. DBnomics is the only
-// adapter today; adding another means implementing `MacroAdapter` and pointing a
-// SeriesDef at it. The UI and the maths never see which adapter produced a series.
+// retrieved-at) and nothing else: no maths, no judgement. DBnomics lives here; the
+// direct primary-source adapters live in macroDirect.ts. Adding one means implementing
+// `MacroAdapter` and pointing a SeriesDef at it. The UI and the maths never see which
+// adapter produced a series.
 // ────────────────────────────────────────────────────────────
 
 export interface MacroAdapter {
   id: string;
+  /** How long the plugin may reuse this adapter's last answer; sized to how often the provider updates. Default 6 h. */
+  cacheMs?: number;
   /** Fetch all `defs` for this adapter in as few upstream requests as possible. Throws with the real cause if the whole request fails. */
   fetchSeries(defs: SeriesDef[], nowMs: number): Promise<AdapterSeries[]>;
 }
@@ -21,7 +24,13 @@ export class RateLimitedError extends Error {
   constructor(message: string, public retryAfterMs: number) { super(message); }
 }
 
-export const USER_AGENT = "AbdelKhaderTerminal/1.0 (personal market-data terminal; reads DBnomics macro data; node)";
+/** Thrown for a failure whose cause is more specific than "error" (missing/rejected key, bot challenge), so the page can say so. */
+export class AdapterError extends Error {
+  constructor(message: string, public kind: ErrorKind = "error") { super(message); }
+}
+
+/** Honest, generic User-Agent for every upstream request: names the tool and what it does, carries no personal data. */
+export const USER_AGENT = "AbdelKhaderTerminal/1.0 (personal market-data terminal; reads public macro statistics; node)";
 const API = "https://api.db.nomics.world/v22/series";
 const UPSTREAM_TIMEOUT_MS = 30_000;
 /** Enough history for the chart and for year-on-year (monthly/quarterly), without shipping 17k daily points per series. */
