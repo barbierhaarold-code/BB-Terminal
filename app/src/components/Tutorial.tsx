@@ -109,6 +109,14 @@ const STEPS: Step[] = [
     open: { code: "LEAN", label: "Open Market Context" },
   },
   {
+    title: "Macro Hub (MACRO)",
+    body: [
+      "Published macro statistics for a few large economies (policy rates, inflation, unemployment, GDP growth, 10-year yields) from DBnomics, an open aggregator of central banks and statistics offices. Every row shows the observation period, the provider and a STALE flag when the figure is older than expected.",
+      "These are monthly or quarterly figures, not live quotes, and they are context, not a forecast. Cells with no licensed, fresh series are listed under Coverage gaps instead of being left blank.",
+    ],
+    open: { code: "MACRO", label: "Open Macro Hub" },
+  },
+  {
     title: "Locked features",
     body: [
       "Some features (for example the AI Copilot, Tweets and Vessels on the map) are members-only. A locked panel shows a \"Members only\" card instead of data. It is not an error.",

@@ -4,7 +4,7 @@ export type FunctionCode =
   | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
-  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "LEAN" | "PORTFOLIO" | "COPILOT" | "MAP" | "PLAN";
+  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "LEAN" | "PORTFOLIO" | "COPILOT" | "MAP" | "PLAN" | "MACRO";
 
 export interface FunctionDef {
   code: FunctionCode;
@@ -46,6 +46,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "LEAN", name: "Market Context",        needsSymbol: false, group: "Markets", summary: "Dollar & rates backdrop per instrument with trend, COT, risk-regime and cross-asset detail; every input shown, plus walk-forward history. Context only, not a forecast" },
   { code: "QUANT", name: "Analytics / Quant",   needsSymbol: false, group: "Markets", summary: "Correlation matrix, cointegration/z-score pairs trading, beta & hedge ratio, sector rotation, COT positioning" },
 
+  { code: "MACRO", name: "Macro Hub",             needsSymbol: false, group: "Macro", summary: "G8 macro data via DBnomics — policy rates, inflation, unemployment, GDP growth, 10Y yields — each with observation period, provider and STALE flag; coverage gaps listed. Descriptive, not a forecast" },
   { code: "CURV", name: "US Yield Curve",        needsSymbol: false, group: "Macro", summary: "Treasury par yield curve" },
 
   { code: "MAP",  name: "World Map",             needsSymbol: false, group: "Map", summary: "Dark world map — quakes, fires, volcanoes, ports, bases, nuclear, GDELT events, weather, country intel, AIS vessels, GPS jamming" },

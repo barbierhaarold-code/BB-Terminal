@@ -29,6 +29,10 @@ import { toYmd } from "@/lib/weekview";
 import type { AnthropicTool } from "@/lib/copilotClient";
 import { getCotSnapshot, cotContract, cotContractSummary, cotSnapshotMeta, isKnownCotKey } from "@/lib/cot";
 import { COT_CONTRACTS } from "@/lib/cotContracts";
+import { getMacroSnapshot } from "@/lib/macro/client";
+import { buildViews } from "@/lib/macro/math";
+import { macroSummary } from "@/lib/macro/summary";
+import { ECONOMIES } from "@/lib/macro/config";
 import { getMarketLeanResults } from "@/lib/lean/data";
 import { INSTRUMENTS, LEAN_THRESHOLD, WALK_FORWARD_MULT, BASE_WEIGHTS, DRIVER_AGREEMENT_NOTE, GOLD_SOURCE_NOTE } from "@/lib/lean/config";
 import { historicalAgreement, driverHistoryNote } from "@/lib/lean/history";
@@ -49,6 +53,20 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
           type: "string",
           enum: COT_CONTRACTS.map((c) => c.key),
           description: "Optional contract key: eur, gbp, jpy, aud, cad, chf, nzd, dxy, es, nq, btc, gold, silver, wti. Omit for the overview of all contracts.",
+        },
+      },
+    },
+  },
+  {
+    name: "get_macro_snapshot",
+    description: "Macro Hub (page code MACRO), READ-ONLY: published macro statistics per economy from DBnomics, the same numbers as the page. For each economy: policy rate, CPI inflation YoY, core CPI, unemployment rate, real GDP growth and 10-year yield WHERE a licensed, fresh series exists, each with its latest value, the observation period (a month or quarter, NOT today), the previous value and change, the provider, the date DBnomics last refreshed it, its attribution, and a 'stale' flag (older than expected for its frequency). Inflation for Japan is computed from the published index and says so. 'realPolicyRate' is computed (policy rate minus CPI YoY, latest available of each) only when both inputs are fresh; relay its caveat about mixed frequencies and show both observation dates. 'coverageGaps' lists every cell that has no series and why: say so plainly instead of estimating. This is descriptive context, never a forecast, signal or advice; always state the observation period; never describe a monthly or quarterly figure as live or current. No write actions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        economy: {
+          type: "string",
+          enum: ECONOMIES.map((e) => e.id),
+          description: "Optional economy code: US, EA (Euro Area), UK, JP, CA, AU, NZ, CH. Omit for all eight.",
         },
       },
     },
@@ -587,12 +605,26 @@ async function toolMarketLean(input: { instrument?: string }) {
 }
 
 // ────────────────────────────────────────────────────────────
+// get_macro_snapshot — wraps lib/macro (the MACRO page's own views + cached snapshot)
+// ────────────────────────────────────────────────────────────
+async function toolMacroSnapshot(input: { economy?: unknown }) {
+  const code = input.economy == null || input.economy === "" ? undefined : String(input.economy).toUpperCase();
+  const economy = ECONOMIES.find((e) => e.id === code)?.id;
+  if (code && !economy) return { available: false, error: `Unknown economy "${code}". Valid: ${ECONOMIES.map((e) => e.id).join(", ")}.` };
+  let snap;
+  try { snap = await getMacroSnapshot(); }
+  catch (e) { return { available: false, error: (e as Error).message }; }
+  return macroSummary(buildViews(snap, Date.now()), snap, economy);
+}
+
+// ────────────────────────────────────────────────────────────
 // Dispatcher
 // ────────────────────────────────────────────────────────────
 export async function runCopilotTool(name: string, input: Record<string, unknown>): Promise<unknown> {
   switch (name) {
     case "get_scalper_snapshot": return toolScalperSnapshot();
     case "get_cot_positioning": return toolCotPositioning(input);
+    case "get_macro_snapshot": return toolMacroSnapshot(input);
     case "get_market_lean": return toolMarketLean(input as { instrument?: string });
     case "get_track_record_stats": return toolTrackRecordStats(input);
     case "get_trade_plans": return toolTradePlans();
