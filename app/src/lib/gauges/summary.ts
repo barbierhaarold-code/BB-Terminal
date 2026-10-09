@@ -1,4 +1,4 @@
-import { CHANGE_DEFINITION, GAUGES_NOTE, PERCENTILE_DEFINITION, STRENGTH_FORMULA } from "./config";
+import { CHANGE_DEFINITION, COMPLETED_LABEL, INTRADAY_LABEL, GAUGES_NOTE, PERCENTILE_DEFINITION, STRENGTH_FORMULA } from "./config";
 import type { GaugesBundle } from "./data";
 import { maybeIntraday } from "./math";
 
@@ -10,7 +10,7 @@ export function summariseGauges(b: GaugesBundle, section: "vol" | "strength" | "
   if (section !== "strength") {
     out.volatility = {
       indices: b.vol.map((v) => ({
-        index: v.label, measures: v.measures, level: r(v.level), asOf: v.asOf, latestBarMayBeIntraday: maybeIntraday(v.asOf, Date.now()),
+        index: v.label, measures: v.measures, level: r(v.level), asOf: v.asOf, latestBar: maybeIntraday(v.asOf, Date.now()) ? INTRADAY_LABEL : COMPLETED_LABEL,
         change1dPoints: r(v.change1d?.points ?? null), change1dPct: r(v.change1d?.pct ?? null, 2),
         change5dPoints: r(v.change5d?.points ?? null), change5dPct: r(v.change5d?.pct ?? null, 2),
         percentile1y: r(v.pctile1y, 1), percentile5y: r(v.pctile5y, 1), warnings: v.warnings,
@@ -31,6 +31,6 @@ export function summariseGauges(b: GaugesBundle, section: "vol" | "strength" | "
       formula: STRENGTH_FORMULA,
     };
   }
-  out.meta = { note: GAUGES_NOTE, instruction: "State the as-of date and the lookback with every figure. Strength is a relative-performance description of past moves over the stated window, not a prediction; a percentile describes where a level sits in its own history, not what comes next. Never present either as a signal or advice. If an index or pair is listed as unavailable, say so instead of estimating it." };
+  out.meta = { note: GAUGES_NOTE, instruction: "State the as-of date and the lookback with every figure; where latestBar says 'intraday (session in progress)' say so, because that level is not a final close. Strength is a relative-performance description of past moves over the stated window, not a prediction; a percentile describes where a level sits in its own history, not what comes next. Never present either as a signal or advice. If an index or pair is listed as unavailable, say so instead of estimating it." };
   return out;
 }

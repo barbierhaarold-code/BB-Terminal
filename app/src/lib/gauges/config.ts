@@ -54,3 +54,7 @@ export const STRENGTH_FORMULA =
 export const GAUGES_NOTE =
   "Daily closes from Yahoo Finance through the terminal's cached proxy. Volatility indices are implied volatilities published by Cboe and ICE; percentiles and changes are computed here from the daily closes shown. "
   + "Currency strength is a transparent relative-performance index from daily closes of the seven USD major pairs. Nothing here is a forecast, a signal or advice.";
+
+/** Shown wherever the newest daily bar is dated today (the session is still in progress, so it is not a final close). */
+export const INTRADAY_LABEL = "intraday (session in progress)";
+export const COMPLETED_LABEL = "completed session close";

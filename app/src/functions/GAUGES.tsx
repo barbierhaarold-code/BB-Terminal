@@ -2,7 +2,7 @@ import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useGauges } from "@/lib/gauges/data";
-import { CHANGE_DEFINITION, GAUGES_NOTE, LOOKBACKS, PAIRS, PERCENTILE_DEFINITION, STRENGTH_FORMULA, type Lookback } from "@/lib/gauges/config";
+import { CHANGE_DEFINITION, GAUGES_NOTE, INTRADAY_LABEL, LOOKBACKS, PAIRS, PERCENTILE_DEFINITION, STRENGTH_FORMULA, type Lookback } from "@/lib/gauges/config";
 import { fmtNum, fmtSigned, maybeIntraday } from "@/lib/gauges/math";
 import type { StrengthResult, VolReading } from "@/lib/gauges/types";
 import { periodLabel } from "@/lib/macro/math";
@@ -97,7 +97,7 @@ function VolTable({ rows }: { rows: VolReading[] }) {
             <tr key={v.id} className="border-b border-term-borderSoft align-top" data-testid={`gauges-vol-${v.id}`}>
               <td className="px-2 py-1.5"><div className="text-term-heading">{v.label}</div><div className="text-[10px] text-term-muted max-w-[260px] leading-snug">{v.measures}</div></td>
               <td className="px-2 py-1.5 text-right num text-term-heading">{fmtNum(v.level)}</td>
-              <td className="px-2 py-1.5 num whitespace-nowrap">{periodLabel(v.asOf)}{maybeIntraday(v.asOf, Date.now()) && <div><span data-testid="gauges-intraday" title="The newest daily bar is dated today, so it is probably the session in progress rather than a final close. Changes and percentiles use it as it stands." className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-amber text-term-amber">intraday?</span></div>}</td>
+              <td className="px-2 py-1.5 num whitespace-nowrap">{periodLabel(v.asOf)}{maybeIntraday(v.asOf, Date.now()) && <div><span data-testid="gauges-intraday" title="The newest daily bar is dated today, so the session is still in progress and this is not a final close. Changes and percentiles use it as it stands." className="text-[10px] tracking-wider px-1.5 py-0.5 border border-term-amber text-term-amber">{INTRADAY_LABEL}</span></div>}</td>
               <td className="px-2 py-1.5 text-right num">{v.change1d ? <>{fmtSigned(v.change1d.points)}<div className="text-[10px] text-term-muted">{fmtSigned(v.change1d.pct, 1)}%</div></> : "n/a"}</td>
               <td className="px-2 py-1.5 text-right num">{v.change5d ? <>{fmtSigned(v.change5d.points)}<div className="text-[10px] text-term-muted">{fmtSigned(v.change5d.pct, 1)}%</div></> : "n/a"}</td>
               <td className="px-2 py-1.5 text-right num" data-testid="gauges-p1">{v.pctile1y == null ? "n/a" : fmtNum(v.pctile1y, 1)}<div className="text-[10px] text-term-muted">{v.n1y} closes</div></td>
