@@ -2,16 +2,17 @@ import { useState } from "react";
 import { useJournal } from "@/store/journalStore";
 import { fmtPrice } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { isServerMode } from "@/lib/userData/backend";
 
 export function JournalSettings() {
   const { baseCapital, pricesHidden, setBaseCapital, togglePricesHidden } = useJournal();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(String(baseCapital));
+  const [draft, setDraft] = useState(baseCapital == null ? "" : String(baseCapital));
 
   function commit() {
     const n = Number(draft.replace(/,/g, ""));
     if (Number.isFinite(n) && n > 0) setBaseCapital(n);
-    else setDraft(String(baseCapital));
+    else setDraft(baseCapital == null ? "" : String(baseCapital));
     setEditing(false);
   }
 
@@ -31,11 +32,16 @@ export function JournalSettings() {
             />
           ) : (
             <button
-              onClick={() => { setDraft(String(baseCapital)); setEditing(true); }}
+              onClick={() => { setDraft(baseCapital == null ? "" : String(baseCapital)); setEditing(true); }}
               className="w-full text-left bg-term-panel border border-term-border px-2 py-1 text-term-amberBright num hover:border-term-amber"
             >
-              {pricesHidden ? "••••••" : fmtPrice(baseCapital, 0)}
+              {baseCapital == null ? "Not set — click to set" : pricesHidden ? "••••••" : fmtPrice(baseCapital, 0)}
             </button>
+          )}
+          {baseCapital == null && (
+            <div className="sub-header normal-case tracking-normal font-normal text-term-muted mt-1" data-testid="capital-unset">
+              Return %, drawdown %, Calmar and risk-per-trade show n/a until a base capital is set.
+            </div>
           )}
         </div>
 
@@ -51,6 +57,7 @@ export function JournalSettings() {
           gross P/L, avg win/loss). Every % and ratio — win rate, return,
           drawdown, risk/trade, deposit load, Sharpe, Calmar — stays visible;
           none of them reveal a dollar figure.
+          {isServerMode() && " This switch applies to this device only."}
         </div>
       </div>
     </div>

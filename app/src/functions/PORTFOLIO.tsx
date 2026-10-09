@@ -35,6 +35,9 @@ export function PORTFOLIO() {
           </button>
         ))}
       </div>
+      <div className="px-3 py-1.5 border-b border-term-borderSoft text-term-muted text-[11px]" data-testid="portfolio-storage-note">
+        Positions are stored in this browser only — they are not saved to your account and do not follow you to another browser or device. Clearing site data erases them.
+      </div>
       <div className="flex-1 min-h-0">
         {tab === "positions" && <PositionsTable />}
         {tab === "allocation" && <AllocationPanel />}

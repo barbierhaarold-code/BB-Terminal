@@ -3,6 +3,8 @@ import { RefreshCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useJournal } from "@/store/journalStore";
 import { useTradePlans } from "@/store/tradePlanStore";
+import { UserDataGate } from "@/components/journal/UserDataGate";
+import { isServerMode } from "@/lib/userData/backend";
 import { useTradeDraft } from "@/store/tradeDraftStore";
 import { useWorkspace } from "@/store/workspaceStore";
 import { mask, type Direction, type Trade } from "@/lib/journal";
@@ -34,6 +36,10 @@ const statusTone = (s: PlanStatus) =>
   : "text-term-muted border-term-borderSoft";
 
 export function PLAN() {
+  return <UserDataGate><PlanBody /></UserDataGate>;
+}
+
+function PlanBody() {
   const { plans, loadError, reload, discardUnreadable } = useTradePlans();
   const trades = useJournal((s) => s.trades);
   const [selId, setSelId] = useState<string | null>(null);
@@ -49,7 +55,7 @@ export function PLAN() {
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className="text-term-amber text-[11px] tracking-[0.25em] font-bold">TRADE PLAN</span>
-            <span className="text-term-muted text-[11px]">write the plan first · compare it with what happened · stored in this browser</span>
+            <span className="text-term-muted text-[11px]">write the plan first · compare it with what happened · {isServerMode() ? "saved to your account" : "stored in this browser"}</span>
           </div>
           <div className="text-term-muted text-[11px] flex gap-3 flex-wrap" data-testid="plan-counts">
             {PLAN_STATUSES.map((s) => <span key={s}>{s} <b className="num text-term-text">{counts[s]}</b></span>)}
@@ -363,7 +369,7 @@ function PlanDetail({ plan, onEdit, onDeleted }: { plan: TradePlan; onEdit: () =
           <Fact k="Targets" v={plan.targets.length ? plan.targets.map((t) => fmtN(t)).join(" · ") : "—"} />
           <Fact k="Planned R of targets (from zone midpoint)" v={plan.targets.length ? plannedRMultiples(plan).map((m) => (m == null ? "n/a" : `${m.toFixed(2)} R`)).join(" · ") : "—"} testId="plan-target-r" />
           <Fact k="Planned risk" v={plan.riskPct != null ? `${fmtN(plan.riskPct)}% of base capital` : "—"} />
-          <Fact k="Planned risk (USD)" v={risk$ != null ? mask(fmtUsd(risk$), pricesHidden) : "—"} testId="plan-risk-usd" />
+          <Fact k="Planned risk (USD)" v={risk$ != null ? mask(fmtUsd(risk$), pricesHidden) : baseCapital == null && plan.riskPct != null ? "n/a — set a base capital in Track Record" : "—"} testId="plan-risk-usd" />
           <Fact k="Conviction (self-rated)" v={plan.conviction != null ? `${plan.conviction} / 5` : "—"} />
         </div>
         {(plan.thesisMacro || plan.thesisTechnical) && (

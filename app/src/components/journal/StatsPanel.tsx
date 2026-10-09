@@ -82,6 +82,10 @@ export function StatsPanel({ trades }: { trades: Trade[] }) {
     );
   }
 
+  const NA = "n/a";
+  const cap = s.hasCapital;
+  const capNote = "Set a base capital in Settings to see this.";
+
   return (
     <div className="panel">
       <div className="panel-header">
@@ -91,25 +95,30 @@ export function StatsPanel({ trades }: { trades: Trade[] }) {
         </span>
       </div>
       <div className="p-3 flex flex-col gap-3">
+        {!cap && (
+          <div className="px-2 py-1.5 border border-term-amber/50 text-term-amber text-[11px]" data-testid="no-capital-note">
+            No base capital is set, so the capital-relative figures (return, drawdown %, avg win/loss %, Calmar, risk per trade, deposit load) show n/a. {capNote}
+          </div>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <Metric label="WIN RATE" value={fmtPct(s.winRate, 1)} tone={toneOf(s.winRate - 50)} />
           <Metric label="PROFIT FACTOR" value={s.profitFactor != null ? s.profitFactor.toFixed(2) : "—"} tone={toneOf(s.profitFactor != null ? s.profitFactor - 1 : undefined)} />
-          <Metric label="RETURN" value={fmtPct(s.returnPct, 2)} tone={toneOf(s.returnPct)} />
-          <Metric label="CALMAR (RETURN% / MAXDD%)" value={s.calmar != null ? s.calmar.toFixed(2) : "—"} tone={toneOf(s.calmar)} />
+          <Metric label="RETURN" value={cap ? fmtPct(s.returnPct, 2) : NA} tone={cap ? toneOf(s.returnPct) : undefined} />
+          <Metric label="CALMAR (RETURN% / MAXDD%)" value={!cap ? NA : s.calmar != null ? s.calmar.toFixed(2) : "—"} tone={cap ? toneOf(s.calmar) : undefined} />
 
           <DualMetric label="NET P&L" dollar={signed(s.netProfit)} tone={toneOf(s.netProfit)} hidden={h} />
           <DualMetric label="EXPECTANCY / TRADE" dollar={signed(s.expectancy)} tone={toneOf(s.expectancy)} hidden={h} />
-          <DualMetric label="MAX DRAWDOWN" dollar={fmtPrice(s.maxDrawdown, 2)} pct={fmtPct(s.maxDrawdownPct, 2)} tone={s.maxDrawdown > 0 ? "down" : "neutral"} hidden={h} />
-          <DualMetric label="CURRENT DRAWDOWN" dollar={fmtPrice(s.currentDrawdown, 2)} pct={`vs max ${fmtPct(s.maxDrawdownPct, 2)}`} tone={s.currentDrawdown > 0 ? "down" : "neutral"} hidden={h} />
+          <DualMetric label="MAX DRAWDOWN" dollar={fmtPrice(s.maxDrawdown, 2)} pct={cap ? fmtPct(s.maxDrawdownPct, 2) : NA} tone={s.maxDrawdown > 0 ? "down" : "neutral"} hidden={h} />
+          <DualMetric label="CURRENT DRAWDOWN" dollar={fmtPrice(s.currentDrawdown, 2)} pct={cap ? `vs max ${fmtPct(s.maxDrawdownPct, 2)}` : NA} tone={s.currentDrawdown > 0 ? "down" : "neutral"} hidden={h} />
 
-          <DualMetric label="AVG WIN" dollar={signed(s.avgWin)} pct={fmtPct(s.avgWinPct, 2)} tone="up" hidden={h} />
-          <DualMetric label="AVG LOSS" dollar={signed(s.avgLoss)} pct={fmtPct(s.avgLossPct, 2)} tone="down" hidden={h} />
+          <DualMetric label="AVG WIN" dollar={signed(s.avgWin)} pct={cap ? fmtPct(s.avgWinPct, 2) : NA} tone="up" hidden={h} />
+          <DualMetric label="AVG LOSS" dollar={signed(s.avgLoss)} pct={cap ? fmtPct(s.avgLossPct, 2) : NA} tone="down" hidden={h} />
           <Metric label="LONGEST WIN / LOSS STREAK" value={`${s.longestWinStreak} / ${s.longestLossStreak}`} />
-          <Metric label="RISK / TRADE (NOTIONAL, EST.)" value={s.riskPerTradePct != null ? fmtPct(s.riskPerTradePct, 2) : "—"} />
+          <Metric label="RISK / TRADE (NOTIONAL, EST.)" value={!cap ? NA : s.riskPerTradePct != null ? fmtPct(s.riskPerTradePct, 2) : "—"} />
 
           <Metric label="RECOVERY FACTOR" value={s.recoveryFactor != null ? s.recoveryFactor.toFixed(2) : "—"} />
           <Metric label="SHARPE (PER-TRADE)" value={s.sharpe != null ? s.sharpe.toFixed(2) : "—"} tone={toneOf(s.sharpe)} />
-          <Metric label="DEPOSIT LOAD (AVG NOTIONAL, EST.)" value={s.depositLoadPct != null ? fmtPct(s.depositLoadPct, 2) : "—"} />
+          <Metric label="DEPOSIT LOAD (AVG NOTIONAL, EST.)" value={!cap ? NA : s.depositLoadPct != null ? fmtPct(s.depositLoadPct, 2) : "—"} />
           <DualMetric label="GROSS P / L" dollar={`${fmtPrice(s.grossProfit, 0)} / ${fmtPrice(s.grossLoss, 0)}`} hidden={h} />
         </div>
 
