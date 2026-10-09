@@ -32,9 +32,9 @@ export function MACRO() {
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className="text-term-amber text-[11px] tracking-[0.25em] font-bold">MACRO HUB</span>
-            <span className="text-term-muted text-[11px]">G8 macro data via DBnomics · descriptive · monthly to quarterly, not live</span>
+            <span className="text-term-muted text-[11px]">G8 macro data from provider APIs and DBnomics · descriptive · monthly to quarterly, not live</span>
           </div>
-          {snap && <StatusLine fetchedAt={snap.fetchedAt} cacheState={snap.cacheState} />}
+          {snap && <StatusLine fetchedAt={snap.fetchedAt} cacheState={snap.cacheState} adapter={snap.adapter} />}
         </div>
         <button onClick={() => q.refetch()} title="Refresh" className="text-term-muted hover:text-term-amber shrink-0 mt-0.5" data-testid="macro-refresh">
           <RefreshCw size={13} className={cn(q.isFetching && "animate-spin")} />
@@ -44,6 +44,8 @@ export function MACRO() {
       {q.isPending && <div className="p-3 text-term-muted uppercase tracking-widest text-[11px]" data-testid="macro-loading">Loading macro data…</div>}
       {q.isError && !q.isPending && <MacroError error={q.error} onRetry={() => q.refetch()} fetching={q.isFetching} />}
       {snap && snap.cacheState === "STALE" && <Banner testid="macro-stale-cache">{snap.warnings[0]}</Banner>}
+      {snap && <AccessProblems views={views} />}
+      {snap && <SourceNotes views={views} />}
 
       {snap && (
         <>
@@ -62,12 +64,12 @@ export function MACRO() {
 
 // ───────────── status + states ─────────────
 
-function StatusLine({ fetchedAt, cacheState }: { fetchedAt: string; cacheState: string }) {
+function StatusLine({ fetchedAt, cacheState, adapter }: { fetchedAt: string; cacheState: string; adapter: string }) {
   const t = new Date(fetchedAt);
   return (
     <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px]" data-testid="macro-status">
       <span className="num text-term-text">Retrieved {t.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
-      <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-borderSoft text-term-muted">DBnomics · server cache {cacheState}</span>
+      <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-borderSoft text-term-muted" title={`Adapters: ${adapter.split("+").join(", ")}`}>{adapter.split("+").length} source adapters · server cache {cacheState}</span>
       <span className="text-term-muted">Each figure carries its own observation period; none is a live quote.</span>
     </div>
   );
@@ -78,6 +80,36 @@ function Banner({ children, testid }: { children: React.ReactNode; testid: strin
     <div data-testid={testid} className="flex items-start gap-2 border border-term-amber/60 bg-term-amberSubtle px-2 py-1 text-[11px] leading-snug text-term-text">
       <AlertTriangle size={12} className="mt-0.5 shrink-0 text-term-amber" />
       <span>{children}</span>
+    </div>
+  );
+}
+
+const PROBLEM_TITLE: Record<string, string> = { key_missing: "API key missing", key_rejected: "API key rejected", blocked: "Source blocked" };
+
+/** Series that cannot load because a key is missing/rejected or a bot challenge blocks the provider: said loudly, never a silent empty cell. */
+function AccessProblems({ views }: { views: MacroViews }) {
+  if (views.accessProblems.length === 0) return null;
+  return (
+    <>
+      {views.accessProblems.map((p) => (
+        <Banner key={`${p.kind}|${p.message}`} testid={`macro-${p.kind.replace("_", "-")}`}>
+          <b>{PROBLEM_TITLE[p.kind]}</b> — {p.labels.join("; ")}: {p.message}
+        </Banner>
+      ))}
+    </>
+  );
+}
+
+/** Small, non-blocking note: the series are shown normally, but through a fallback route (e.g. keyless BLS v1 because the key is missing or rejected). */
+function SourceNotes({ views }: { views: MacroViews }) {
+  if (views.notices.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-0.5 text-[10px] text-term-muted" data-testid="macro-source-notes">
+      {views.notices.map((n) => (
+        <div key={`${n.kind}|${n.message}`} data-testid={`macro-note-${n.kind.replace("_", "-")}`}>
+          <b className="text-term-text">{PROBLEM_TITLE[n.kind]}</b> · {n.labels.join("; ")}: {n.message}
+        </div>
+      ))}
     </div>
   );
 }
@@ -150,7 +182,7 @@ function Overview(p: {
                 <th className="px-2 py-1.5 font-normal">Trend</th>
                 <th className="px-2 py-1.5 font-normal">Status</th>
                 <th className="px-2 py-1.5 font-normal">Provider</th>
-                <th className="px-2 py-1.5 font-normal">DBnomics refreshed</th>
+                <th className="px-2 py-1.5 font-normal">Source updated</th>
               </tr>
             </thead>
             <tbody>
@@ -169,7 +201,7 @@ function Overview(p: {
                     <td className="px-2 py-1.5">
                       <div className="flex gap-1 flex-wrap">
                         {v.freshness?.state === "stale" && (
-                          <Chip testid="macro-stale-chip" title={`Older than expected: ${v.freshness.ageDays} days since ${v.freshness.basis === "refresh" ? "DBnomics last refreshed it" : "the end of the period"}; expected at most ${v.freshness.lagDays}.`}>STALE</Chip>
+                          <Chip testid="macro-stale-chip" title={`Older than expected: ${v.freshness.ageDays} days since ${v.freshness.basis === "refresh" ? "the source last refreshed it" : "the end of the period"}; expected at most ${v.freshness.lagDays}.`}>STALE</Chip>
                         )}
                         {v.computed && <Chip title="Year-on-year change computed by this terminal from the provider's published index.">computed</Chip>}
                         {v.freshness?.state === "fresh" && !v.computed && <span className="text-term-muted text-[10px]">{v.freshness.ageDays} d old</span>}
@@ -217,11 +249,11 @@ function Detail({ v }: { v: SeriesView }) {
           Latest observation {periodLabel(v.latest!.period)}: {fmtValue(v.latest!.value, d)}%
           {v.previous && <> · previous {periodLabel(v.previous.period)}: {fmtValue(v.previous.value, d)}% · change {fmtChange(v.change, d)}</>}
           {v.def.valueNote && <span className="text-term-muted" data-testid="macro-detail-note"> ({v.def.valueNote})</span>}
-          {" "}· provider: {v.provider} · DBnomics last refreshed: {dateLabel(v.refreshedAt)}
+          {" "}· provider: {v.provider} · source last updated: {dateLabel(v.refreshedAt)}
           {v.freshness && <> · age {v.freshness.ageDays} d (expected ≤ {v.freshness.lagDays} d, {v.freshness.basis === "refresh" ? "from refresh date" : "from period end"})</>}
         </div>
         <div className="text-[10px] text-term-muted">{v.def.attribution}.{" "}
-          <a href={v.sourceUrl} target="_blank" rel="noreferrer noopener" className="underline hover:text-term-amber">Series on DBnomics</a>{" "}
+          <a href={v.sourceUrl} target="_blank" rel="noreferrer noopener" className="underline hover:text-term-amber">{v.def.adapter === "dbnomics" ? "Series on DBnomics" : "Series at the provider"}</a>{" "}
           · Series code {v.def.code} · {v.def.licenceNote} · Lag rule: {v.def.lag.why}.
         </div>
       </div>
@@ -396,7 +428,8 @@ function Comparison({ rows }: { rows: RealRate[] }) {
 // ───────────── coverage gaps ─────────────
 
 const GAP_KIND: Record<string, string> = {
-  no_series: "No licensed fresh series", excluded_provider: "Provider excluded", stale_mirror: "Stale mirror", not_pinned: "Not wired in v1", fetch_error: "Fetch problem", too_old: "Too old to show",
+  no_series: "No fresh series found", excluded_provider: "Provider excluded", stale_mirror: "Stale mirror", not_pinned: "Not wired yet", fetch_error: "Fetch problem", too_old: "Too old to show",
+  key_missing: "API key missing", key_rejected: "API key rejected", blocked: "Source blocked",
 };
 
 function CoverageGaps({ views }: { views: MacroViews }) {
@@ -436,7 +469,7 @@ function Sources() {
   return (
     <div className="border border-term-borderSoft px-3 py-2 text-[10px] text-term-muted leading-relaxed" data-testid="macro-sources">
       <div className="sub-header mb-1">Sources and licences</div>
-      <div className="mb-1">DBnomics (db.nomics.world) is a free open aggregator: it redistributes each provider's data as-is, without changing values, so freshness depends on each provider and on when DBnomics last mirrored it.</div>
+      <div className="mb-1">Each series is fetched either directly from its provider's own API (the provider is named on the row) or through DBnomics (db.nomics.world), a free open aggregator that redistributes each provider's data as-is, so a DBnomics series is only as fresh as its last mirror. Licences are not audited for this non-commercial terminal; attribution is kept and a licence note is shown only where a provider states one plainly.</div>
       <ul className="grid gap-0.5">
         {unique.map(([a, l]) => <li key={a}>{a}. <span className="opacity-80">{l}</span></li>)}
       </ul>
@@ -448,17 +481,17 @@ function About() {
   return (
     <DataNote>
       <p className="mb-1.5">
-        <b>What this is.</b> A reference page of published macroeconomic statistics for a few large economies, pulled from DBnomics. It is <b>descriptive context, not a prediction</b>:
+        <b>What this is.</b> A reference page of published macroeconomic statistics for a few large economies, pulled from the statistics offices and central banks themselves where a free API exists, and from DBnomics otherwise. It is <b>descriptive context, not a prediction</b>:
         nothing here forecasts, scores or signals anything, and values are never coloured as good or bad.
       </p>
       <p className="mb-1.5">
         <b>Why the dates lag.</b> Statistics describe a past period and are published afterwards: inflation roughly two to three weeks after the month ends, unemployment from about four weeks (Australia) to two and a half months (UK),
-        GDP one to three months after the quarter ends, and they are often revised later. Central-bank rates and bond yields are daily, but DBnomics mirrors them with its own delay.
+        GDP one to three months after the quarter ends, and they are often revised later. Central-bank rates and bond yields are daily, but some sources publish them with their own delay (DBnomics mirrors, weekly cubes).
         So a figure marked "Aug 2026" is an August number, not today's; always read the observation period beside the value.
       </p>
       <p className="mb-1.5">
         <b>Indicators.</b> <b>Policy rate</b>: the central bank's main interest rate (US shows interest on reserves, an administered rate; Australia's cash rate target changes only at meetings, so its date is the date the rate took effect).
-        <b> CPI inflation (YoY)</b>: change in consumer prices versus the same period a year earlier; where a provider publishes only the index (Japan), the year-on-year change is computed here and labelled "computed". Because the index is rounded to one decimal, a computed figure can differ from the statistics office's own year-on-year by about 0.1 percentage point.
+        <b> CPI inflation (YoY)</b>: change in consumer prices versus the same period a year earlier; where a provider publishes only the index or level (Japan, Canada, the United States, Swiss GDP), the year-on-year change is computed here and labelled "computed". Where the index is rounded to one decimal, a computed figure can differ from the statistics office's own year-on-year by about 0.1 percentage point.
         <b> Core CPI</b>: the same excluding the most volatile items (definitions differ by country: Japan excludes fresh food and energy, Australia uses the trimmed mean).
         <b> Unemployment rate</b>: share of the labour force without work and seeking it. <b>Real GDP growth</b>: change in inflation-adjusted output; the basis differs by country (US quarter-on-quarter annualised, UK quarter-on-quarter, Euro Area and Australia year-on-year) and the basis is shown on each row, so rows are not directly comparable.
         <b> 10Y yield</b>: the yield on 10-year government bonds.
@@ -467,7 +500,7 @@ function About() {
         <b>Real policy rate</b> (computed: policy rate minus CPI YoY, latest available of each) mixes a daily or step rate with a monthly or quarterly CPI. It is shown only when both inputs are fresh, with both observation dates; it describes the gap between two published numbers, not a measure of how tight policy is.
       </p>
       <p>
-        <b>Coverage.</b> Many central banks and statistics offices are not on DBnomics, or their DBnomics mirror is months behind, or their terms of use do not allow redistribution here. Those cells are listed under Coverage gaps instead of being shown empty or estimated. PMI and other proprietary series are not included.
+        <b>Coverage.</b> Where no free, fresh endpoint was found (or an endpoint blocks automated access, or an API key is missing), the cell is listed under Coverage gaps with the reason instead of being shown empty or estimated. Rows marked "via FRED" or "via BIS" come from a republisher and say so in the provider column. PMI and other proprietary series are not included.
       </p>
     </DataNote>
   );

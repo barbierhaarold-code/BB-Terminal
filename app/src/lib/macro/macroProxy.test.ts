@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { macroProxyPlugin } from "../../../vite-plugins/macro";
 import { RateLimitedError, type MacroAdapter } from "../../../vite-plugins/macroAdapters";
 import { SERIES } from "./config";
-import type { AdapterSeries } from "./types";
+import type { AdapterSeries, SeriesDef } from "./types";
 
 const okSeries = (id: string): AdapterSeries => ({
   id, ok: true, observations: [{ period: "2026-08", value: 1 }], provider: "P", sourceUrl: "x", refreshedAt: "2026-10-08T00:00:00.000Z", retrievedAt: "2026-10-09T00:00:00.000Z",
@@ -21,9 +21,9 @@ function fakeAdapter(behaviour: () => Promise<AdapterSeries[]> | AdapterSeries[]
 }
 
 const servers: Server[] = [];
-async function mount(mode: "dev" | "preview", simulate: boolean, adapter: MacroAdapter) {
+async function mount(mode: "dev" | "preview", simulate: boolean, adapter: MacroAdapter | MacroAdapter[], env: Record<string, string | undefined> = {}) {
   const app = connect();
-  const plugin = macroProxyPlugin(simulate, [adapter]);
+  const plugin = macroProxyPlugin(simulate, Array.isArray(adapter) ? adapter : [adapter], env);
   const fake = { middlewares: app } as never;
   const hook = mode === "dev" ? plugin.configureServer : plugin.configurePreviewServer;
   (hook as (s: never) => void).call({} as never, fake);
@@ -128,5 +128,101 @@ describe("outage-simulation switch is dev-only", () => {
   it("rejects an invalid mode with 400", async () => {
     const s = await mount("dev", true, f());
     expect((await s.post("/macro-proxy/_simulate?mode=bogus")).status).toBe(400);
+  });
+});
+
+// ───────────── several adapters behind one snapshot ─────────────
+
+function namedAdapter(id: "dbnomics" | "bls", behaviour: (defs: SeriesDef[]) => Promise<AdapterSeries[]> | AdapterSeries[], cacheMs?: number) {
+  const calls = { n: 0 };
+  const adapter: MacroAdapter = { id, cacheMs, async fetchSeries(defs) { calls.n++; return behaviour(defs); } };
+  return { adapter, calls };
+}
+const allOk = (defs: SeriesDef[]) => defs.map((d) => okSeries(d.id));
+const SECRET = "k3y-secret-value-0123456789abcdef";
+
+describe("macro-proxy with several adapters", () => {
+  it("one failing provider does not take the page down: its series carry the real cause, the rest are served", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const dbn = namedAdapter("dbnomics", allOk);
+    const bls = namedAdapter("bls", () => { throw new Error("BLS answered HTTP 500 Internal Server Error."); });
+    const s = await mount("dev", false, [dbn.adapter, bls.adapter]);
+    const r = await s.get();
+    expect(r.status).toBe(200);
+    const us = r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi");
+    expect(us).toMatchObject({ ok: false });
+    expect(us.error).toContain("HTTP 500");
+    expect(r.body.results.series.filter((x: AdapterSeries) => x.ok).length).toBeGreaterThan(10);
+    expect(r.body.results.warnings.some((w: string) => w.startsWith("us.cpi:"))).toBe(true);
+  });
+
+  it("a missing key flows through as an explicit per-series state with its kind (never a silent gap)", async () => {
+    const dbn = namedAdapter("dbnomics", allOk);
+    const bls = namedAdapter("bls", (defs) => defs.map((d): AdapterSeries => ({ ...okSeries(d.id), ok: false, observations: [], errorKind: "key_missing", error: "API key missing: BLS_API_KEY is not set." })));
+    const s = await mount("dev", false, [dbn.adapter, bls.adapter]);
+    const r = await s.get();
+    expect(r.status).toBe(200);
+    expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.unemp")).toMatchObject({ ok: false, errorKind: "key_missing" });
+  });
+
+  it("a key that an upstream error echoes back is scrubbed from the 502 the browser receives", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const bls = namedAdapter("bls", () => { throw new Error(`The key:${SECRET} provided by the User is invalid.`); });
+    const s = await mount("dev", false, bls.adapter, { BLS_API_KEY: SECRET });
+    const r = await s.get();
+    expect(r.status).toBe(502);
+    expect(JSON.stringify(r.body)).not.toContain(SECRET);
+    expect(r.body.warnings[0].message).toContain("[key]");
+  });
+
+  it("caches per adapter at its own pace: the snapshot is rebuilt after 10 min but a 12 h adapter is not asked again until 12 h", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-09T08:00:00Z"));
+      const dbn = namedAdapter("dbnomics", allOk, 6 * 3_600_000);
+      const bls = namedAdapter("bls", allOk, 12 * 3_600_000);
+      const s = await mount("dev", false, [dbn.adapter, bls.adapter]);
+      await s.get();
+      expect([dbn.calls.n, bls.calls.n]).toEqual([1, 1]);
+      vi.setSystemTime(new Date("2026-10-09T08:05:00Z"));
+      expect((await s.get()).headers.get("x-bbterminal-cache")).toBe("HIT");
+      vi.setSystemTime(new Date("2026-10-09T08:11:00Z"));
+      const rebuilt = await s.get();
+      expect([dbn.calls.n, bls.calls.n]).toEqual([1, 1]);
+      expect(rebuilt.headers.get("x-bbterminal-cache")).toBe("HIT"); // rebuilt from adapter caches: nothing went upstream
+      vi.setSystemTime(new Date("2026-10-09T14:30:00Z"));
+      await s.get();
+      expect([dbn.calls.n, bls.calls.n]).toEqual([2, 1]);
+      vi.setSystemTime(new Date("2026-10-09T20:30:00Z"));
+      await s.get();
+      expect([dbn.calls.n, bls.calls.n]).toEqual([3, 2]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("serves one provider's older data marked STALE (with the cause) when only that provider fails on refresh", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.setSystemTime(new Date("2026-10-09T08:00:00Z"));
+      let fail = false;
+      const dbn = namedAdapter("dbnomics", allOk, 1000);
+      const bls = namedAdapter("bls", (defs) => { if (fail) throw new Error("BLS unreachable (ECONNRESET)."); return allOk(defs); }, 1000);
+      const s = await mount("dev", false, [dbn.adapter, bls.adapter]);
+      expect((await s.get()).status).toBe(200);
+      fail = true;
+      vi.setSystemTime(new Date("2026-10-09T09:00:00Z"));
+      const r = await s.get();
+      expect(r.status).toBe(200);
+      expect(r.body.results.cacheState).toBe("STALE");
+      expect(r.body.results.warnings[0]).toMatch(/bls is unreachable \(BLS unreachable \(ECONNRESET\)\.\)/);
+      expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi").ok).toBe(true); // the older data, still there
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("a configured series whose adapter is not mounted is reported, not dropped", async () => {
+    const s = await mount("dev", false, namedAdapter("dbnomics", allOk).adapter);
+    const r = await s.get();
+    expect(r.body.results.series).toHaveLength(SERIES.length);
+    expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi").error).toMatch(/No adapter "bls" is mounted/);
   });
 });

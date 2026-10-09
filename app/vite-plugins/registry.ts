@@ -23,7 +23,7 @@ export function proxyPlugins(env: Record<string, string | undefined>): Plugin[] 
     proxyAuthPlugin(env),
     apiCachePlugin(),
     cotProxyPlugin(env.CFTC_SOCRATA_APP_TOKEN, env.COT_ALLOW_SIMULATE === "1"),
-    macroProxyPlugin(env.MACRO_ALLOW_SIMULATE === "1"),
+    macroProxyPlugin(env.MACRO_ALLOW_SIMULATE === "1", undefined, env),
     quantProxyPlugin(),
     spotMetalsPlugin(env.TWELVE_DATA_API_KEY),
     getXApiProxyPlugin(env.GETX_API_KEY),

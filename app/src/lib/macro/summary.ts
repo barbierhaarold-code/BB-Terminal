@@ -12,7 +12,7 @@ export function macroSummary(views: MacroViews, snap: MacroSnapshot, economy?: E
   const keep = (e: Economy) => !economy || e === economy;
   return {
     available: true as const,
-    source: `DBnomics (open aggregator; redistributes each provider's data as-is). Retrieved ${snap.fetchedAt} (server cache ${snap.cacheState}).`,
+    source: `Direct provider APIs (BLS, Eurostat, Statistics Canada, Bank of Canada, Bank of England, Swiss National Bank, BIS, Statistics Bureau of Japan, IMF, FRED) and DBnomics (open aggregator; redistributes each provider's data as-is). Each series names its own provider. Retrieved ${snap.fetchedAt} (server cache ${snap.cacheState}).`,
     economies: (Object.keys(ECONOMY_NAME) as Economy[]).filter(keep).map((e) => ({
       economy: ECONOMY_NAME[e],
       series: views.shown.filter((v) => v.def.economy === e).map((v) => ({
@@ -25,14 +25,16 @@ export function macroSummary(views: MacroViews, snap: MacroSnapshot, economy?: E
         previousValue: round(v.previous?.value ?? null),
         previousPeriod: v.previous ? periodLabel(v.previous.period) : null,
         change: round(v.change),
-        computed: v.computed ? "computed by the terminal: year-on-year change from the provider's published index" : false,
+        computed: v.computed ? "computed by the terminal: year-on-year change from the provider's published index or level" : false,
+        republishedBy: /\b(via|republished)\b/i.test(v.provider) ? v.provider : null,
         valueNote: v.def.valueNote ?? null,
         stale: v.freshness?.state === "stale",
         ageDays: v.freshness?.ageDays ?? null,
         expectedLagDays: v.freshness?.lagDays ?? null,
         freshnessBasis: v.freshness?.basis ?? null,
         provider: v.provider,
-        dbnomicsLastRefreshed: v.refreshedAt ? dateLabel(v.refreshedAt) : null,
+        sourceLastUpdated: v.refreshedAt ? dateLabel(v.refreshedAt) : null,
+        sourceNote: v.notice?.message ?? null,
         attribution: v.def.attribution,
         frequency: v.def.frequency,
       })),
@@ -48,7 +50,7 @@ export function macroSummary(views: MacroViews, snap: MacroSnapshot, economy?: E
           : { value: null, notComputed: r.reason ?? "inputs unavailable" };
       })(),
     })),
-    coverageGaps: views.gaps.filter((g) => keep(g.economy)).map((g) => ({ economy: ECONOMY_NAME[g.economy], indicator: INDICATOR_NAME[g.indicator], why: g.reason })),
+    coverageGaps: views.gaps.filter((g) => keep(g.economy)).map((g) => ({ economy: ECONOMY_NAME[g.economy], indicator: INDICATOR_NAME[g.indicator], kind: g.kind, why: g.reason })),
     warnings: snap.warnings,
     meta: {
       staleRule: STALE_RULE_TEXT,

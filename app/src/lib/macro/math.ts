@@ -1,5 +1,5 @@
 import type { Frequency, Observation, PeriodKey, Freshness, SeriesDef, RealRate, SeriesView, AdapterSeries, GapRow, Economy, Indicator, MacroSnapshot } from "./types";
-import { SERIES, ECONOMIES, INDICATORS, knownGap } from "./config";
+import { SERIES, ECONOMIES, INDICATORS, ECONOMY_NAME as ECONOMY_NAME_SHORT, knownGap } from "./config";
 
 // ────────────────────────────────────────────────────────────
 // Pure maths for the Macro Hub. No I/O, no clock reads (the caller passes `now`),
@@ -127,12 +127,12 @@ export function buildView(def: SeriesDef, a: AdapterSeries | undefined, now: num
     provider: a?.provider ?? def.provider, sourceUrl: a?.sourceUrl ?? "", refreshedAt: a?.refreshedAt ?? null, retrievedAt: a?.retrievedAt ?? null,
   };
   if (!a) return { ...base, error: "Not returned by the data source." };
-  if (!a.ok) return { ...base, error: a.error ?? "Data source error." };
+  if (!a.ok) return { ...base, error: a.error ?? "Data source error.", errorKind: a.errorKind };
   const pts = def.transform === "yoy" ? yoyFromIndex(a.observations) : a.observations.filter((o) => Number.isFinite(o.value));
   const { latest, previous } = latestTwo(pts);
   if (!latest) return { ...base, error: def.transform === "yoy" ? "Not enough history to compute a year-on-year change." : "The source returned no usable values." };
   return {
-    ...base, latest, previous, change: changeOf(latest, previous), points: pts,
+    ...base, notice: a.notice, latest, previous, change: changeOf(latest, previous), points: pts,
     freshness: assessFreshness(def, latest.period, a.refreshedAt, now),
   };
 }
@@ -143,7 +143,7 @@ export function buildView(def: SeriesDef, a: AdapterSeries | undefined, now: num
  */
 export function realPolicyRate(economy: Economy, policy: SeriesView | undefined, cpi: SeriesView | undefined): RealRate {
   const empty = { economy, policy: null, cpi: null, value: null, ok: false } as const;
-  if (!policy || !cpi) return { ...empty, reason: `${!policy ? "no policy-rate series" : "no CPI series"} in v1` };
+  if (!policy || !cpi) return { ...empty, reason: !policy ? "no policy-rate series" : "no CPI series" };
   const describe = (v: SeriesView) => (v.latest ? { value: v.latest.value, period: v.latest.period, frequency: v.def.frequency, label: v.def.label } : null);
   if (policy.error || !policy.latest) return { ...empty, reason: `policy rate unavailable (${policy.error ?? "no value"})` };
   if (cpi.error || !cpi.latest) return { ...empty, reason: `CPI unavailable (${cpi.error ?? "no value"})` };
@@ -161,7 +161,13 @@ export interface MacroViews {
   realRates: RealRate[];
   /** economies whose real policy rate is computable */
   realRateCount: number;
+  /** series that cannot load because an API key is missing/rejected or a bot challenge blocks the source, grouped by cause */
+  accessProblems: AccessProblem[];
+  /** series that ARE shown but arrived through a fallback route (e.g. keyless BLS v1 because a key is missing/rejected): a small non-blocking note */
+  notices: AccessProblem[];
 }
+
+export interface AccessProblem { kind: "key_missing" | "key_rejected" | "blocked"; message: string; seriesIds: string[]; labels: string[] }
 
 /** Whole-page derivation: which series are shown, every gap with its reason, and the real policy rates. */
 export function buildViews(snap: Pick<MacroSnapshot, "series"> | undefined, now: number): MacroViews {
@@ -179,13 +185,29 @@ export function buildViews(snap: Pick<MacroSnapshot, "series"> | undefined, now:
   for (const e of ECONOMIES) for (const i of INDICATORS) {
     const v = cell.get(`${e.id}|${i.id}`);
     if (!v) { const g = knownGap(e.id, i.id); gaps.push({ economy: e.id, indicator: i.id, ...g }); continue; }
-    if (v.error) gaps.push({ economy: e.id, indicator: i.id, kind: "fetch_error", reason: `${v.def.label}: ${v.error}` });
+    if (v.error) gaps.push({ economy: e.id, indicator: i.id, kind: v.errorKind && v.errorKind !== "error" ? v.errorKind : "fetch_error", reason: `${v.def.label}: ${v.error}` });
     else if (v.freshness?.state === "hidden") {
       gaps.push({ economy: e.id, indicator: i.id, kind: "too_old", reason: `${v.def.label}: latest observation ${periodLabel(v.latest!.period)} is ${v.freshness.ageDays} days old, more than twice its expected lag of ${v.freshness.lagDays} days.` });
     }
   }
   const realRates = ECONOMIES.map((e) => realPolicyRate(e.id, cell.get(`${e.id}|policy_rate`), cell.get(`${e.id}|cpi_yoy`)));
-  return { shown, gaps, realRates, realRateCount: realRates.filter((r) => r.ok).length };
+  const problems = new Map<string, AccessProblem>();
+  for (const v of all) {
+    if (!v.error || !v.errorKind || v.errorKind === "error") continue;
+    const k = `${v.errorKind}|${v.error}`;
+    const p = problems.get(k) ?? { kind: v.errorKind, message: v.error, seriesIds: [], labels: [] };
+    p.seriesIds.push(v.def.id); p.labels.push(`${ECONOMY_NAME_SHORT[v.def.economy]} ${v.def.label}`);
+    problems.set(k, p);
+  }
+  const notes = new Map<string, AccessProblem>();
+  for (const v of shown) {
+    if (!v.notice) continue;
+    const k = `${v.notice.kind}|${v.notice.message}`;
+    const p = notes.get(k) ?? { kind: v.notice.kind, message: v.notice.message, seriesIds: [], labels: [] };
+    p.seriesIds.push(v.def.id); p.labels.push(`${ECONOMY_NAME_SHORT[v.def.economy]} ${v.def.label}`);
+    notes.set(k, p);
+  }
+  return { shown, gaps, realRates, realRateCount: realRates.filter((r) => r.ok).length, accessProblems: [...problems.values()], notices: [...notes.values()] };
 }
 
 export const REAL_RATE_LABEL = "computed: policy rate minus CPI YoY, latest available of each, observation dates shown";
