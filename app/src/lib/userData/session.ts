@@ -72,3 +72,9 @@ function refreshOnFocus(): void {
 
 /** Test seam only. */
 export function resetSessionForTests(): void { current = null; epoch++; }
+
+/** Put a freshly re-read account snapshot into the stores (after an import). Ignored if the user changed meanwhile. */
+export function applyLoadedSnapshot(userId: string, snap: import("./adapter").UserDataSnapshot): void {
+  if (currentUserId() !== userId) return;
+  broadcast((h) => h.loaded(userId, snap));
+}

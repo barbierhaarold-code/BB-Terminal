@@ -3,10 +3,11 @@ import { useJournal } from "@/store/journalStore";
 import { useTradePlans } from "@/store/tradePlanStore";
 import { computeStats } from "@/lib/journal";
 import {
-  downloadBackup, parseBackup, applyReplace, applyMerge,
+  downloadBackup, parseBackup, applyImport,
   type BackupFile, type ApplyResult,
 } from "@/lib/journalBackup";
 import { cn } from "@/lib/cn";
+import { isServerMode } from "@/lib/userData/backend";
 
 type Notice = { tone: "ok" | "error"; text: string };
 
@@ -23,6 +24,10 @@ export function BackupPanel() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const baseCapital = useJournal((s) => s.baseCapital);
+  const server = isServerMode();
+  const [busy, setBusy] = useState(false);
+  const [copyCapital, setCopyCapital] = useState(true);
   const [pending, setPending] = useState<{ fileName: string; backup: BackupFile; warnings: string[] } | null>(null);
 
   function onExport() {
@@ -51,10 +56,11 @@ export function BackupPanel() {
     }
   }
 
-  function confirm(mode: "replace" | "merge") {
-    if (!pending) return;
+  async function confirm(mode: "replace" | "merge") {
+    if (!pending || busy) return;
+    setBusy(true);
     try {
-      const r: ApplyResult = mode === "replace" ? applyReplace(pending.backup) : applyMerge(pending.backup);
+      const r: ApplyResult = await applyImport(pending.backup, mode, { copyBaseCapital: server && copyCapital });
       const planText = r.plans
         ? ` Plans: ${r.plans.before} → ${r.plans.after}${mode === "merge" ? ` (${r.plans.added} added, ${r.plans.skipped} duplicates skipped)` : ""}.`
         : " Plans untouched (file has none).";
@@ -62,11 +68,15 @@ export function BackupPanel() {
         tone: "ok",
         text: (mode === "replace"
           ? `Replaced: ${r.before} → ${r.after} trades.`
-          : `Merged: ${r.before} → ${r.after} trades (${r.added} added, ${r.skipped} duplicates skipped).`) + planText,
+          : `Merged: ${r.before} → ${r.after} trades (${r.added} added, ${r.skipped} duplicates skipped).`) + planText
+          + (r.check ? (r.check.ok ? ` Re-checked on the server: ${r.check.actualTrades} trades, net ${r.check.actualNet.toFixed(2)} ✔.` : ` ⚠ Server re-check mismatch: ${r.check.problems.join("; ")}.`) : ""),
       });
+      if (r.check && !r.check.ok) setNotice({ tone: "error", text: `Imported, but the server re-check does not match: ${r.check.problems.join("; ")}.` });
       setPending(null);
     } catch (e) {
-      setNotice({ tone: "error", text: `Import failed, data unchanged: ${(e as Error).message}` });
+      setNotice({ tone: "error", text: `Import failed${server ? " (nothing was changed or the import can be safely re-run)" : ", data unchanged"}: ${(e as Error).message}` });
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -110,13 +120,25 @@ export function BackupPanel() {
               Exported {b.header.exportedAt ? new Date(b.header.exportedAt).toLocaleString() : "?"} · app v{b.header.appVersion || "?"}
             </div>
             {pending.warnings.map((w) => <div key={w} className="text-term-red">⚠ {w}</div>)}
-            <div className="text-term-muted">
+            {server && (
+              <div className="text-term-muted" data-testid="server-import-note">
+                Merge adds only what your account does not already have (same id or same fill = skipped) and can be run twice safely.
+                Replace is disabled for server accounts.
+                {b.data.baseCapital != null && baseCapital == null && (
+                  <label className="flex items-center gap-2 mt-1 text-term-text">
+                    <input type="checkbox" checked={copyCapital} onChange={(e) => setCopyCapital(e.target.checked)} />
+                    Set this account's base capital to {b.data.baseCapital.toLocaleString()} (it has none yet)
+                  </label>
+                )}
+              </div>
+            )}
+            {!server && <div className="text-term-muted">
               <b>Replace</b> overwrites all current trades, setups and base capital with the file's (trade plans too, but only if the file contains plans).{" "}
               <b>Merge</b> keeps current data and adds only trades and plans not already present.
-            </div>
+            </div>}
             <div className="flex gap-1">
-              <button onClick={() => confirm("replace")} className={cn(btn, "border-term-red text-term-red hover:border-term-red hover:text-term-red")}>Replace</button>
-              <button onClick={() => confirm("merge")} className={cn(btn, "border-term-amber text-term-amber")}>Merge (skip duplicates)</button>
+              {!server && <button onClick={() => void confirm("replace")} className={cn(btn, "border-term-red text-term-red hover:border-term-red hover:text-term-red")}>Replace</button>}
+              <button onClick={() => void confirm("merge")} disabled={busy} className={cn(btn, "border-term-amber text-term-amber")}>{busy ? "Importing…" : "Merge (skip duplicates)"}</button>
               <button onClick={() => setPending(null)} className={btn}>Cancel</button>
             </div>
           </div>
