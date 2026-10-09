@@ -4,7 +4,7 @@ export type FunctionCode =
   | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
-  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "LEAN" | "PORTFOLIO" | "COPILOT" | "MAP" | "PLAN" | "MACRO" | "HOLD" | "POLICY";
+  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "LEAN" | "PORTFOLIO" | "COPILOT" | "MAP" | "PLAN" | "MACRO" | "HOLD" | "POLICY" | "GAUGES";
 
 export interface FunctionDef {
   code: FunctionCode;
@@ -49,6 +49,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "MACRO", name: "Macro Hub",             needsSymbol: false, group: "Macro", summary: "G8 macro data from provider APIs and DBnomics — policy rates, inflation, unemployment, GDP growth, 10Y yields — each with observation period, provider and STALE flag; coverage gaps listed. Descriptive, not a forecast" },
   { code: "HOLD",  name: "Institutional Holdings", needsSymbol: false, group: "Markets", summary: "SEC Form 13F-HR: what about 30 well-known managers hold and how it changed versus the previous quarter, plus the largest holders of a stock. Quarterly, weeks-old, long US positions only — not real-time, not a signal" },
   { code: "POLICY", name: "Policy Feed",        needsSymbol: false, group: "Macro", summary: "Official central-bank and multilateral press releases, speeches, research and statistics in one stream, with a per-feed health strip. Titles, dates and links as published; never summarised, never a signal" },
+  { code: "GAUGES", name: "Vol & Currency Strength", needsSymbol: false, group: "Markets", summary: "Volatility board (VIX, VXN, GVZ, OVX, MOVE: level, 1D/5D change, 1Y/5Y percentile) and a transparent currency-strength ranking of the 8 majors over 1, 5 and 20 days. Descriptive, not a forecast" },
   { code: "CURV", name: "US Yield Curve",        needsSymbol: false, group: "Macro", summary: "Treasury par yield curve" },
 
   { code: "MAP",  name: "World Map",             needsSymbol: false, group: "Map", summary: "Dark world map — quakes, fires, volcanoes, ports, bases, nuclear, GDELT events, weather, country intel, AIS vessels, GPS jamming" },

@@ -37,6 +37,8 @@ import { fetchHolders, fetchHoldStatus, fetchManager, getManagers } from "@/lib/
 import { findManager, summariseHolders, summariseManager, summariseManagerList } from "@/lib/holdings/summary";
 import { getPolicySnapshot } from "@/lib/policy/client";
 import { summarisePolicy, type PolicyToolInput } from "@/lib/policy/summary";
+import { getGauges } from "@/lib/gauges/data";
+import { summariseGauges } from "@/lib/gauges/summary";
 import { getMarketLeanResults } from "@/lib/lean/data";
 import { INSTRUMENTS, LEAN_THRESHOLD, WALK_FORWARD_MULT, BASE_WEIGHTS, DRIVER_AGREEMENT_NOTE, GOLD_SOURCE_NOTE } from "@/lib/lean/config";
 import { historicalAgreement, driverHistoryNote } from "@/lib/lean/history";
@@ -102,6 +104,11 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
         since_days: { type: "number", description: "Optional: only items published in the last N days." },
       },
     },
+  },
+  {
+    name: "get_vol_and_strength",
+    description: "Vol & Currency Strength (page code GAUGES), READ-ONLY, same numbers as the page. Volatility board: VIX, VXN (Nasdaq-100), GVZ (gold), OVX (crude oil) and MOVE (Treasury rates vol), each with its latest level and as-of date, 1-day and 5-day change (points and %), and its percentile over the last 1 and 5 years (share of daily closes at or below the latest; definitions included). Currency strength: the 8 majors (USD, EUR, GBP, JPY, AUD, CAD, CHF, NZD) ranked by a transparent relative-performance index over 1, 5 and 20 trading days, computed from the seven USD major pairs (formula included). State the as-of date and lookback with every figure. This describes past moves and where a level sits in its own history; never present it as a forecast, signal or advice. Pairs or indices that could not be loaded are listed, not estimated. No write actions.",
+    input_schema: { type: "object", properties: { section: { type: "string", enum: ["vol", "strength", "both"], description: "Which part to return (default both)." } } },
   },
   {
     name: "get_market_lean",
@@ -680,6 +687,15 @@ async function toolPolicyFeed(input: PolicyToolInput) {
 }
 
 // ────────────────────────────────────────────────────────────
+// get_vol_and_strength — wraps lib/gauges (the GAUGES page's own cached bundle)
+// ────────────────────────────────────────────────────────────
+async function toolVolAndStrength(input: { section?: unknown }) {
+  const section = input.section === "vol" || input.section === "strength" ? input.section : "both";
+  try { return summariseGauges(await getGauges(), section); }
+  catch (e) { return { available: false, error: (e as Error).message }; }
+}
+
+// ────────────────────────────────────────────────────────────
 // Dispatcher
 // ────────────────────────────────────────────────────────────
 export async function runCopilotTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -689,6 +705,7 @@ export async function runCopilotTool(name: string, input: Record<string, unknown
     case "get_macro_snapshot": return toolMacroSnapshot(input);
     case "get_institutional_holdings": return toolInstitutionalHoldings(input);
     case "get_policy_feed": return toolPolicyFeed(input as PolicyToolInput);
+    case "get_vol_and_strength": return toolVolAndStrength(input);
     case "get_market_lean": return toolMarketLean(input as { instrument?: string });
     case "get_track_record_stats": return toolTrackRecordStats(input);
     case "get_trade_plans": return toolTradePlans();

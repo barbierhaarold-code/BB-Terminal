@@ -133,6 +133,14 @@ const STEPS: Step[] = [
     open: { code: "POLICY", label: "Open Policy Feed" },
   },
   {
+    title: "Vol & Currency Strength (GAUGES)",
+    body: [
+      "A volatility board (VIX, Nasdaq vol, gold vol, crude-oil vol and the MOVE rates-vol index) with each level, its 1-day and 5-day change and where it sits versus its last 1 and 5 years, plus a ranking of the 8 major currencies by relative performance over 1, 5 and 20 days.",
+      "The formulas are shown on the page. It describes what already happened; a high percentile or a top rank is not a forecast or a signal.",
+    ],
+    open: { code: "GAUGES", label: "Open Vol & Currency Strength" },
+  },
+  {
     title: "Locked features",
     body: [
       "Some features (for example the AI Copilot, Tweets and Vessels on the map) are members-only. A locked panel shows a \"Members only\" card instead of data. It is not an error.",

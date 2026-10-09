@@ -43,6 +43,7 @@ import { PLAN } from "@/functions/PLAN";
 import { MACRO } from "@/functions/MACRO";
 import { HOLD } from "@/functions/HOLD";
 import { POLICY } from "@/functions/POLICY";
+import { GAUGES } from "@/functions/GAUGES";
 import { PORTFOLIO } from "@/functions/PORTFOLIO";
 import { MAP } from "@/functions/MAP";
 import { Tutorial } from "@/components/Tutorial";
@@ -81,6 +82,7 @@ const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   MACRO: () => <MACRO />,
   HOLD: () => <HOLD />,
   POLICY: () => <POLICY />,
+  GAUGES: () => <GAUGES />,
 };
 
 // Which Copilot `current_view` label a given active tab corresponds to —
