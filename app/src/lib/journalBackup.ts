@@ -31,7 +31,8 @@ export interface BackupHeader {
 export interface BackupData {
   trades: Trade[];
   setups: Setup[];
-  baseCapital: number;
+  /** null = the exporting account had not set a base capital (server accounts start without one) */
+  baseCapital: number | null;
   pricesHidden: boolean;
   /** Optional (v2+). Absent in old files, in which case import leaves the user's plans alone. */
   tradePlans?: PlansBlob;
@@ -121,7 +122,7 @@ export function parseBackup(text: string): ParseResult {
   const d = json.data;
   if (!Array.isArray(d.trades)) return { ok: false, error: 'Malformed backup: "data.trades" must be an array.' };
   if (!Array.isArray(d.setups)) return { ok: false, error: 'Malformed backup: "data.setups" must be an array.' };
-  if (!isNum(d.baseCapital) || d.baseCapital <= 0) return { ok: false, error: 'Malformed backup: "data.baseCapital" must be a positive number.' };
+  if (d.baseCapital !== null && (!isNum(d.baseCapital) || d.baseCapital <= 0)) return { ok: false, error: 'Malformed backup: "data.baseCapital" must be a positive number (or null when none was set).' };
   if (typeof d.pricesHidden !== "boolean") return { ok: false, error: 'Malformed backup: "data.pricesHidden" must be true/false.' };
 
   const setups: Setup[] = [];
@@ -154,7 +155,7 @@ export function parseBackup(text: string): ParseResult {
   if (h.tradeCount !== trades.length) {
     warnings.push(`Header says ${String(h.tradeCount)} trades but the file contains ${trades.length}.`);
   }
-  const net = computeStats(trades, d.baseCapital as number).netProfit;
+  const net = computeStats(trades, d.baseCapital as number | null).netProfit;
   if (!isNum(h.totalNetPnl) || Math.abs(h.totalNetPnl - net) > 0.005) {
     warnings.push(`Header net P&L (${String(h.totalNetPnl)}) does not match the trades (${net.toFixed(2)}).`);
   }
@@ -171,7 +172,7 @@ export function parseBackup(text: string): ParseResult {
         tradeCount: trades.length,
         totalNetPnl: net,
       },
-      data: { trades, setups, baseCapital: d.baseCapital as number, pricesHidden: d.pricesHidden, ...(tradePlans ? { tradePlans } : {}) },
+      data: { trades, setups, baseCapital: d.baseCapital as number | null, pricesHidden: d.pricesHidden, ...(tradePlans ? { tradePlans } : {}) },
     },
   };
 }
@@ -198,7 +199,7 @@ export function applyReplace(b: BackupFile): ApplyResult {
   useJournal.setState({
     trades: b.data.trades,
     setups: b.data.setups,
-    baseCapital: b.data.baseCapital,
+    baseCapital: b.data.baseCapital ?? useJournal.getState().baseCapital,
     pricesHidden: b.data.pricesHidden,
   });
   const after = useJournal.getState().trades.length;
