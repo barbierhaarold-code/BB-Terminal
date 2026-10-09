@@ -4,7 +4,7 @@ export type FunctionCode =
   | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
-  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "LEAN" | "PORTFOLIO" | "COPILOT" | "MAP" | "PLAN" | "MACRO";
+  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "LEAN" | "PORTFOLIO" | "COPILOT" | "MAP" | "PLAN" | "MACRO" | "GAUGES";
 
 export interface FunctionDef {
   code: FunctionCode;
@@ -47,6 +47,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "QUANT", name: "Analytics / Quant",   needsSymbol: false, group: "Markets", summary: "Correlation matrix, cointegration/z-score pairs trading, beta & hedge ratio, sector rotation, COT positioning" },
 
   { code: "MACRO", name: "Macro Hub",             needsSymbol: false, group: "Macro", summary: "G8 macro data from provider APIs and DBnomics — policy rates, inflation, unemployment, GDP growth, 10Y yields — each with observation period, provider and STALE flag; coverage gaps listed. Descriptive, not a forecast" },
+  { code: "GAUGES", name: "Vol & Currency Strength", needsSymbol: false, group: "Markets", summary: "Volatility board (VIX, VXN, GVZ, OVX, MOVE: level, 1D/5D change, 1Y/5Y percentile) and a transparent currency-strength ranking of the 8 majors over 1, 5 and 20 days. Descriptive, not a forecast" },
   { code: "CURV", name: "US Yield Curve",        needsSymbol: false, group: "Macro", summary: "Treasury par yield curve" },
 
   { code: "MAP",  name: "World Map",             needsSymbol: false, group: "Map", summary: "Dark world map — quakes, fires, volcanoes, ports, bases, nuclear, GDELT events, weather, country intel, AIS vessels, GPS jamming" },
