@@ -8,6 +8,7 @@ import {
 } from "@/lib/journalBackup";
 import { cn } from "@/lib/cn";
 import { isServerMode } from "@/lib/userData/backend";
+import { ImportLocalDialog } from "./ImportLocalDialog";
 
 type Notice = { tone: "ok" | "error"; text: string };
 
@@ -95,6 +96,8 @@ export function BackupPanel() {
         <input ref={fileRef} type="file" accept="application/json,.json" className="hidden"
           onChange={(e) => void onFile(e.target.files?.[0])} />
       </div>
+
+      <ImportLocalDialog />
 
       {tradeCount === 0 && planCount === 0 && !notice && !pending && (
         <div className="sub-header normal-case tracking-normal font-normal text-term-muted">No trades yet — nothing to export.</div>

@@ -67,7 +67,11 @@ export function buildBackup(): BackupFile {
 }
 
 export function downloadBackup(): { fileName: string; tradeCount: number } {
-  const backup = buildBackup();
+  return downloadBackupFile(buildBackup());
+}
+
+/** Download any backup object (used for the "local backup first" safety copy). */
+export function downloadBackupFile(backup: BackupFile): { fileName: string; tradeCount: number } {
   const fileName = backupFileName();
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
