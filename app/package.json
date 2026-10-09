@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist-server/index.cjs",
-    "start": "node dist-server/index.cjs"
+    "start": "node dist-server/index.cjs",
+    "test": "vitest run",
+    "lean:backtest": "esbuild scripts/leanWalkForward.ts --bundle --platform=node --format=esm --alias:@=./src --outfile=.lean-cache/wf.mjs --log-level=warning && node .lean-cache/wf.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",
@@ -39,6 +41,7 @@
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",
-    "vite": "^5.4.10"
+    "vite": "^5.4.10",
+    "vitest": "^2.1.9"
   }
 }

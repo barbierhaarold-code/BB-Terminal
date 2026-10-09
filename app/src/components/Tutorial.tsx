@@ -93,6 +93,14 @@ const STEPS: Step[] = [
     open: { code: "COT", label: "Open COT" },
   },
   {
+    title: "Market Context (LEAN)",
+    body: [
+      "A transparent backdrop per instrument (gold, the dollar index, the main FX pairs, S&P 500, Nasdaq 100, oil, Bitcoin): Supportive, Headwind or Neutral. Today it is built from the dollar and rates drivers only; trend, COT positioning, risk regime and cross-asset readings are shown with their raw inputs and carry weight 0 because the walk-forward test found no demonstrated edge.",
+      "It is context, not a forecast or a trade signal. The page shows what would change the backdrop and how often it agreed with past moves, which is close to chance and not statistically significant.",
+    ],
+    open: { code: "LEAN", label: "Open Market Context" },
+  },
+  {
     title: "Locked features",
     body: [
       "Some features (for example the AI Copilot, Tweets and Vessels on the map) are members-only. A locked panel shows a \"Members only\" card instead of data. It is not an error.",

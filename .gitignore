@@ -50,3 +50,6 @@ VIDEO_SCRIPT.md
 *.private.md
 dist-server/
 .env.production
+
+# Market Lean walk-forward raw downloads
+app/.lean-cache/
