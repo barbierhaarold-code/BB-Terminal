@@ -27,6 +27,9 @@ import { toYmd } from "@/lib/weekview";
 import type { AnthropicTool } from "@/lib/copilotClient";
 import { getCotSnapshot, cotContract, cotContractSummary, cotSnapshotMeta, isKnownCotKey } from "@/lib/cot";
 import { COT_CONTRACTS } from "@/lib/cotContracts";
+import { getMarketLeanResults } from "@/lib/lean/data";
+import { INSTRUMENTS, LEAN_THRESHOLD, WALK_FORWARD_MULT, BASE_WEIGHTS, DRIVER_AGREEMENT_NOTE } from "@/lib/lean/config";
+import { historicalAgreement } from "@/lib/lean/history";
 
 export const COPILOT_TOOLS: AnthropicTool[] = [
   {
@@ -45,6 +48,16 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
           enum: COT_CONTRACTS.map((c) => c.key),
           description: "Optional contract key: eur, gbp, jpy, aud, cad, chf, nzd, dxy, es, nq, btc, gold, silver, wti. Omit for the overview of all contracts.",
         },
+      },
+    },
+  },
+  {
+    name: "get_market_lean",
+    description: "Market Lean: a transparent, rule-based directional CONTEXT read per instrument (XAUUSD, DXY, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, SPX, NDX, WTI, BTC), the same numbers as the LEAN page. Each has a label (Bullish lean / Bearish lean / Mixed), driver agreement 0-100 (= sign agreement x data completeness; 'Share of weighted drivers pointing the same way. Not a probability of being right.'), per-driver scores/weights/raw inputs (trend, COT positioning, dollar & rates, risk regime, cross-asset), what would change the lean, and data freshness. It is context, never a trade signal or advice: never phrase it as buy/sell. A walk-forward test found no statistically significant edge in the pooled lean, so NEVER present a lean as a prediction, probability or forecast; always relay the 'historicalAgreement' text and 'driverAgreementNote' with it. Report any n/a driver or warning plainly. COT inside it is weekly (positions as of Tuesday), not live.",
+    input_schema: {
+      type: "object",
+      properties: {
+        instrument: { type: "string", enum: INSTRUMENTS.map((i) => i.id), description: "Optional instrument id. Omit for a one-line summary of all 13." },
       },
     },
   },
@@ -483,6 +496,47 @@ function toolPrefillTrackRecord(input: Record<string, unknown>) {
   };
 }
 
+
+// ────────────────────────────────────────────────────────────
+// get_market_lean — wraps lib/lean (the LEAN page's own engine + cached bundle)
+// ────────────────────────────────────────────────────────────
+async function toolMarketLean(input: { instrument?: string }) {
+  let out;
+  try { out = await getMarketLeanResults(); }
+  catch (e) { return { available: false, error: (e as Error).message }; }
+  const { bundle, results } = out;
+  const meta = {
+    note: "Context only, not financial advice. Rule-based, from daily data; not a trade signal.",
+    driverAgreementNote: DRIVER_AGREEMENT_NOTE,
+    historicalAgreement: historicalAgreement(input.instrument).text,
+    historicalAgreementCaveat: historicalAgreement(input.instrument).caveat,
+    leanThreshold: LEAN_THRESHOLD,
+    baseWeights: BASE_WEIGHTS, walkForwardMultiplier: WALK_FORWARD_MULT,
+    walkForward: "Walk-forward agreement is close to chance and not statistically significant for the pooled lean and most drivers; drivers without demonstrated edge carry weight 0 but are still shown. Never describe a lean as predictive.",
+    inputsThatFailed: bundle.seriesErrors, cotError: bundle.cotError ?? null, fetchedAt: bundle.fetchedAt,
+  };
+  const round = (n: number | null) => (n == null ? null : Math.round(n * 100) / 100);
+  if (input.instrument) {
+    const r = results.find((x) => x.instrumentId === input.instrument);
+    if (!r) return { available: false, error: `Unknown instrument "${input.instrument}". Valid: ${INSTRUMENTS.map((i) => i.id).join(", ")}.` };
+    return {
+      available: true, instrument: r.instrumentId, label: r.label, composite: round(r.composite), driverAgreement: r.driverAgreement,
+      signAgreement: round(r.signAgreement), completeness: round(r.completeness), confirmers: r.confirmers,
+      drivers: r.drivers.map((d) => ({
+        driver: d.label, score: round(d.score), direction: d.direction, baseWeight: d.baseWeight, walkForwardMultiplier: d.multiplier, weight: round(d.weight),
+        displayOnly: d.displayOnly, note: d.note,
+        inputs: d.components.map((c) => ({ input: c.label, raw: c.raw, score: round(c.score), direction: c.direction, missing: c.missing })),
+      })),
+      whatWouldChangeIt: r.flips.map((f) => f.text), warnings: r.warnings, freshness: r.freshness, meta,
+    };
+  }
+  return {
+    available: true,
+    instruments: results.map((r) => ({ instrument: r.instrumentId, label: r.label, composite: round(r.composite), driverAgreement: r.driverAgreement, lastBar: r.freshness.ownLastBar, warnings: r.warnings.length })),
+    meta,
+  };
+}
+
 // ────────────────────────────────────────────────────────────
 // Dispatcher
 // ────────────────────────────────────────────────────────────
@@ -490,6 +544,7 @@ export async function runCopilotTool(name: string, input: Record<string, unknown
   switch (name) {
     case "get_scalper_snapshot": return toolScalperSnapshot();
     case "get_cot_positioning": return toolCotPositioning(input);
+    case "get_market_lean": return toolMarketLean(input as { instrument?: string });
     case "get_track_record_stats": return toolTrackRecordStats(input);
     case "get_news_headlines": return toolNewsHeadlines(input);
     case "get_econ_calendar": return toolEconCalendar(input);

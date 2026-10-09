@@ -93,6 +93,14 @@ const STEPS: Step[] = [
     open: { code: "COT", label: "Open COT" },
   },
   {
+    title: "Market Lean (LEAN)",
+    body: [
+      "A transparent, directional read per instrument (gold, the dollar index, the main FX pairs, S&P 500, Nasdaq 100, oil, Bitcoin) built from trend, COT positioning, dollar and rates, risk regime and cross-asset confirmation. Every driver shows its raw input, score and weight.",
+      "It is context, not a trade signal. Each lean carries a driver-agreement number (the share of weighted drivers pointing the same way, not a probability), what would change it, and how often it agreed with past moves, which is often close to chance.",
+    ],
+    open: { code: "LEAN", label: "Open Market Lean" },
+  },
+  {
     title: "Locked features",
     body: [
       "Some features (for example the AI Copilot, Tweets and Vessels on the map) are members-only. A locked panel shows a \"Members only\" card instead of data. It is not an error.",
