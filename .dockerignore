@@ -5,6 +5,7 @@
 **/node_modules
 **/dist
 **/dist-server
+**/.hold-cache
 **/.env
 **/.env.*
 !**/.env.example

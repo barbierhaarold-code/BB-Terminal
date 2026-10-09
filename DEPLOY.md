@@ -62,6 +62,7 @@ into the frontend and do need `--build`.
 - **Each person's journal (TRACK), settings and workspace live in their own browser**, not on the server.
   Everyone should use TRACK > **Export JSON** regularly. Losing the server loses none of it.
 - **`.env.production`**: keep a copy in your password manager. It is the only server-side secret store.
+- Institutional Holdings cache volume (`hold-cache`, the SEC bulk data and its index) is re-creatable too: no backup needed.
 - OpenBB cache volume (`openbb-data`) is re-creatable; the Caddy volume (`caddy-data`) holds the HTTPS
   certificate (re-issuable). Optional snapshot:
   `docker run --rm -v bb-terminal_openbb-data:/d -v "$PWD":/b alpine tar czf /b/openbb-data.tgz -C /d .`
@@ -83,3 +84,17 @@ docker compose down                     # stop everything (volumes kept)
 - **GetXAPI** and **Anthropic** are pay-per-use: every allowed friend's use is billed to you.
 - No rate limiting per user at the gateway yet; a signed-in user can still burn your paid quotas on features they are allowed.
 - No CSP header is set (the app loads map tiles and embeds from several external hosts).
+
+## 9. Institutional Holdings (HOLD): first build, disk, and config (Docker parts UNTESTED)
+- Set `SEC_CONTACT_EMAIL` in `.env.production` (the SEC requires a declared contact in the User-Agent; it is sent only to sec.gov).
+  Without it the HOLD page says "SEC contact email missing" and makes no request. `BLS_API_KEY` and `FRED_API_KEY` are optional (see the example file).
+- The first HOLD build downloads the SEC's two latest Form 13F bulk data sets and takes about **104 s**, then maps tickers through OpenFIGI
+  at its keyless rate (about 25 requests a minute) for about **8 minutes**. During that time HOLD works and shows a progress note; positions
+  without a confirmed ticker show issuer name and CUSIP. After that the index is rebuilt at most once a day from the cached files.
+- **Disk:** the cache measured about **195 MB** on the development machine (two data-set zips of about 96 MB and 95 MB, a 4 MB index and a 0.2 MB ticker map).
+  Allow about 300 MB for the `hold-cache` volume (a new quarterly data set replaces the oldest zip).
+- The gateway root filesystem is read-only, so the cache lives in the named volume `hold-cache` mounted at `/srv/.hold-cache`
+  (declared in `docker-compose.yml`; the directory is created and chowned to `node` in `docker/gateway/Dockerfile`).
+- No other new proxy writes to disk: the Policy Feed (`/policy-proxy`) and Vol & Currency Strength (which reuses the existing `/api` proxy) keep everything in memory.
+- **These Docker changes (compose volume, Dockerfile chown, extra environment variables) are untested: Docker is not installed on the machine they were written on.**
+  After deploying, check `docker compose logs gateway` for `[holdings-proxy]` errors and open HOLD once.

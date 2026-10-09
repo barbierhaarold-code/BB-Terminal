@@ -16,6 +16,8 @@ ENV NODE_ENV=production PORT=8080 DIST_DIR=/srv/dist
 WORKDIR /srv
 COPY --from=build /app/dist /srv/dist
 COPY --from=build /app/dist-server/index.cjs /srv/index.cjs
+# Writable cache for Institutional Holdings (mounted as the `hold-cache` volume; the root filesystem is read-only).
+RUN mkdir -p /srv/.hold-cache && chown node:node /srv/.hold-cache
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \

@@ -50,9 +50,19 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
       AISSTREAM_API_KEY: ${AISSTREAM_API_KEY:-}
+      BLS_API_KEY: ${BLS_API_KEY:-}
+      FRED_API_KEY: ${FRED_API_KEY:-}
+      SEC_CONTACT_EMAIL: ${SEC_CONTACT_EMAIL:-}
       OPENBB_URL: http://openbb:6900
       QUANT_URL: http://quant:6901
     networks: [edge, backend, quantnet]
+    volumes:
+      # Institutional Holdings (HOLD) downloads the SEC's two latest Form 13F bulk data sets (about 100 MB each)
+      # and builds its index here. The root filesystem is read-only, so this is the ONLY writable path besides /tmp.
+      # Re-creatable (rebuilt in minutes), so it needs no backup. The directory is created and chowned to `node` in
+      # docker/gateway/Dockerfile so the first-created volume is writable. UNTESTED: Docker is not installed on the
+      # machine this was written on.
+      - hold-cache:/srv/.hold-cache
     depends_on:
       openbb: { condition: service_healthy }
       quant: { condition: service_healthy }
@@ -97,6 +107,7 @@ networks:
     internal: true
 
 volumes:
+  hold-cache: {}
   openbb-data: {}
   caddy-data: {}
   caddy-config: {}
