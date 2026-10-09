@@ -4,16 +4,21 @@ import { fetchShareStatistics, fetchInsiderTrading } from "@/lib/api";
 import { fmtVolume, fmtPrice, fmtDate, fmtPctFromDecimal } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { Loading, ErrorBlock, EmptyBlock, GapNotice, SectionTitle, ProportionBar } from "./shared";
+import { useHolders } from "@/lib/holdings/client";
+import { HolderTable } from "../HOLD";
+import { THIRTEEN_F_NOTE } from "@/lib/holdings/config";
 
 /** Ownership % (insider/institution/public) is free via yfinance's
- * share_statistics; insider transactions are free via SEC Form 4. A true
- * top-25-shareholders table needs FMP's major_holders/institutional
- * endpoints, which are restricted on the free tier this app is configured
- * with (verified live — 402 "Restricted Endpoint") — flagged below rather
- * than faked. */
+ * share_statistics; insider transactions are free via SEC Form 4. The top
+ * institutional holders now come from the SEC's own Form 13F bulk data (HOLD
+ * page proxy) when the symbol has an exact CUSIP match; otherwise the old
+ * FMP gap note stays (FMP's major_holders/institutional endpoints are
+ * restricted on the free tier — verified 402 "Restricted Endpoint") and the
+ * reason the SEC list is missing is shown beside it. Never faked. */
 export function OwnershipTab({ symbol }: { symbol: string }) {
   const statsQ = useQuery({ queryKey: ["share-stats", symbol], queryFn: () => fetchShareStatistics(symbol) });
   const insiderQ = useQuery({ queryKey: ["insider-trading", symbol], queryFn: () => fetchInsiderTrading(symbol, 50) });
+  const holdQ = useHolders(symbol.toUpperCase());
 
   const s = statsQ.data;
   const insiders = insiderQ.data ?? [];
@@ -51,12 +56,27 @@ export function OwnershipTab({ symbol }: { symbol: string }) {
         </div>
       </div>
 
-      <GapNotice>
-        Top-25 shareholders (13F institutional holder names/positions) needs FMP's <code>major_holders</code> /
-        <code> institutional</code> endpoints — restricted on this app's free FMP tier. Upgrading the FMP plan at
-        financialmodelingprep.com would light this up; the ownership % above and insider transactions below are real
-        data, no key required.
-      </GapNotice>
+      {holdQ.data ? (
+        <div data-testid="ownership-13f">
+          <SectionTitle>TOP INSTITUTIONAL HOLDERS (SEC FORM 13F)</SectionTitle>
+          <HolderTable h={holdQ.data} limit={15} />
+          <div className="text-[10px] text-term-muted mt-1.5">{THIRTEEN_F_NOTE}</div>
+        </div>
+      ) : (
+        <>
+          <GapNotice>
+            Top-25 shareholders (13F institutional holder names/positions) needs FMP's <code>major_holders</code> /
+            <code> institutional</code> endpoints — restricted on this app's free FMP tier. Upgrading the FMP plan at
+            financialmodelingprep.com would light this up; the ownership % above and insider transactions below are real
+            data, no key required.
+          </GapNotice>
+          {holdQ.isError && (
+            <div className="text-[11px] text-term-muted" data-testid="ownership-13f-unavailable">
+              SEC 13F holders are not shown for {symbol.toUpperCase()}: {(holdQ.error as Error).message} (see the HOLD page).
+            </div>
+          )}
+        </>
+      )}
 
       <div>
         <SectionTitle>INSIDER TRANSACTIONS (RECENT FORM 4s)</SectionTitle>

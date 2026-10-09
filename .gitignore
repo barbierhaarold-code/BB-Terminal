@@ -53,3 +53,6 @@ dist-server/
 
 # Market Lean walk-forward raw downloads
 app/.lean-cache/
+
+# Institutional Holdings (HOLD): downloaded SEC bulk data sets + derived index
+app/.hold-cache/
