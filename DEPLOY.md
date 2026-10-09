@@ -1,8 +1,9 @@
 # Deploying ABDEL KHADER (small invite-only circle, one VPS)
 
-Status: packaged and tested locally **without Docker** (Docker is not installed on the dev Mac).
-The Dockerfiles, `docker-compose.yml` and `Caddyfile` have **never been built or run**. Expect
-to fix small things on the first `docker compose build`. Not hardened or load-tested for open internet.
+Status: the stack (gateway + OpenBB + quant + Caddy) was built and run with Docker Desktop on a Mac (2026-10-09, plain HTTP on
+localhost, see section 10). Build, health checks, the auth gate, network exposure and volume persistence all passed with no
+Dockerfile changes. **Not yet verified:** a real HTTPS domain (Let's Encrypt), Supabase redirect URLs for a real domain, and more
+than one concurrent user. Not hardened or load-tested for open internet.
 
 ## 1. What to buy, in order
 1. **A domain name** (any registrar). You need one DNS name, e.g. `terminal.yourdomain.com`.
@@ -96,5 +97,16 @@ docker compose down                     # stop everything (volumes kept)
 - The gateway root filesystem is read-only, so the cache lives in the named volume `hold-cache` mounted at `/srv/.hold-cache`
   (declared in `docker-compose.yml`; the directory is created and chowned to `node` in `docker/gateway/Dockerfile`).
 - No other new proxy writes to disk: the Policy Feed (`/policy-proxy`) and Vol & Currency Strength (which reuses the existing `/api` proxy) keep everything in memory.
-- **These Docker changes (compose volume, Dockerfile chown, extra environment variables) are untested: Docker is not installed on the machine they were written on.**
-  After deploying, check `docker compose logs gateway` for `[holdings-proxy]` errors and open HOLD once.
+- These Docker changes (compose volume, Dockerfile chown, extra environment variables) were tested locally on 2026-10-09: the volume is writable,
+  the first build took about 70 s to a usable index (zips 100 MB + 99 MB, index 4 MB, `hold-cache` volume about 204 MB), and the cache survived `docker compose down` then `up -d`.
+  After deploying, still check `docker compose logs gateway` for `[holdings-proxy]` errors and open HOLD once.
+
+## 10. Local Docker test results (2026-10-09, macOS, Docker Desktop 29, 10 CPUs / 7.7 GB given to Docker)
+- Test the stack on your own machine over plain HTTP: set `DOMAIN=http://localhost` in `.env.production` (Caddy then serves HTTP only, no certificate);
+  any `ACME_EMAIL` value works. Ports 80 and 443 must be free. Then `docker compose --env-file .env.production up -d --build`.
+- Cold build: about 2 minutes. Images: openbb 1.3 GB, quant 704 MB, gateway 237 MB, caddy 89 MB (about 2.3 GB). Allow about 6 GB of disk for images, build cache and volumes.
+- All four containers healthy within about 20 s. Only caddy publishes ports (80, 443). Every `/api` and `/*-proxy/*` route answers 401 without a token.
+- The Copilot guard allows at most 20 tools per request (`maxTools` in `app/vite-plugins/copilotGuard.ts`); it was 12 while the client sends 14, which made every Copilot question fail with "14 tools; the limit is 12".
+- Measured RAM (one signed-in user): idle about 1.0 GB in total (openbb about 0.55 GB, quant about 0.25 GB, gateway about 0.15 GB, caddy about 0.04 GB); peak about 1.45 GB during the first HOLD build.
+- Each person's journal (TRACK), plans and settings are stored per browser origin: a new URL starts empty. Use TRACK > Export JSON / Import JSON to move them.
+- OpenBB also keeps a small yfinance timezone cache in `/home/openbb/.cache` (not a volume; re-created automatically).

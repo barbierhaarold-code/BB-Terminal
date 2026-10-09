@@ -14,7 +14,7 @@ export const COPILOT_LIMITS = {
   drainCeilingBytes: 16 * 1024 * 1024,
   maxMessages: 80,
   maxSystemChars: 20_000,
-  maxTools: 12,
+  maxTools: 20, // the client currently defines 14 (src/lib/copilotTools.ts); keep headroom so adding a tool cannot break Copilot
   maxToolDescriptionChars: 4_000,
   maxToolSchemaBytes: 8_000,
   /** Output cap per upstream call; a client-sent max_tokens can only go lower. */
