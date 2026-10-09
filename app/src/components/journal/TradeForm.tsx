@@ -250,7 +250,7 @@ export function TradeForm() {
           </button>
           {savedFlash && <span className="text-term-green text-[11px] uppercase tracking-wider">✓ saved</span>}
           {prefillFlash && !savedFlash && (
-            <span className="text-term-amber text-[11px] uppercase tracking-wider">Pre-filled by copilot · review &amp; save</span>
+            <span className="text-term-amber text-[11px] uppercase tracking-wider">Pre-filled · review &amp; save</span>
           )}
         </div>
       </div>

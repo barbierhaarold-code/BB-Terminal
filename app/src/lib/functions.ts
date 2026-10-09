@@ -4,7 +4,7 @@ export type FunctionCode =
   | "FA" | "KEY" | "DVD" | "EE" | "NI" | "RESEARCH"
   | "WEI" | "MOV" | "OMON"
   | "CURV" | "FXC" | "CRYPTO"
-  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "LEAN" | "PORTFOLIO" | "COPILOT" | "MAP";
+  | "QCARD" | "HEAT" | "TRACK" | "NH" | "INVEST" | "QUANT" | "COT" | "LEAN" | "PORTFOLIO" | "COPILOT" | "MAP" | "PLAN";
 
 export interface FunctionDef {
   code: FunctionCode;
@@ -51,6 +51,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "MAP",  name: "World Map",             needsSymbol: false, group: "Map", summary: "Dark world map — quakes, fires, volcanoes, ports, bases, nuclear, GDELT events, weather, country intel, AIS vessels, GPS jamming" },
 
   { code: "TRACK", name: "Track Record",         needsSymbol: false, group: "Journal", summary: "Trading journal — manual log, bulk import, setups, performance stats" },
+  { code: "PLAN", name: "Trade Plan",            needsSymbol: false, group: "Journal", summary: "Documented pre-trade plans (thesis, entry zone, stop, targets, risk %) later compared with what happened — adherence and realized R for linked trades" },
   { code: "PORTFOLIO", name: "Portfolio Tracker", needsSymbol: false, group: "Journal", summary: "Open positions, live P&L, sector allocation, performance vs S&P 500, risk stats, watchlist news" },
 ];
 

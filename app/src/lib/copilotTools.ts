@@ -14,6 +14,8 @@ import {
 import { SESSIONS, sessionStatus, overlaps, DXY, intradayStats } from "@/lib/forex";
 import { computeStats, MACRO_BIAS_OPTIONS, CONVICTION_OPTIONS, type Direction } from "@/lib/journal";
 import { useJournal } from "@/store/journalStore";
+import { useTradePlans } from "@/store/tradePlanStore";
+import { adherenceStats, computeRealizedR, entryReference, plannedRiskDollars, plannedRMultiples, R_NOTE, statusCounts } from "@/lib/tradePlan";
 import { useWorkspace } from "@/store/workspaceStore";
 import { useTradeDraft, type TradeDraft } from "@/store/tradeDraftStore";
 import { FUNCTIONS } from "@/lib/functions";
@@ -70,6 +72,11 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
         recentTradesLimit: { type: "integer", description: "How many of the most recent trades to include (default 10, max 50)." },
       },
     },
+  },
+  {
+    name: "get_trade_plans",
+    description: "READ-ONLY view of the Trade Plan journal (page code PLAN): the user's documented pre-trade plans (each may have an optional title). Returns the open plans (status active or triggered) with symbol, direction, entry zone, stop, targets, planned risk % and dollars, conviction (the user's own rating) and any frozen context snapshot with its as-of dates; counts per status; and adherence stats (followed yes / partly / no) with the sample size n and, for plans linked to a trade, net result and mean realized R (realized R is n/a when the linked trade's numbers are not valid; never guess it). Plans are the user's intentions, not forecasts. Always relay the sample size and the small-sample note; draw no conclusion from small n. There is no write action.",
+    input_schema: { type: "object", properties: {} },
   },
   {
     name: "get_news_headlines",
@@ -239,6 +246,41 @@ function toolTrackRecordStats(input: { recentTradesLimit?: number }) {
       byDirection: stats.byDirection, byWeekday: stats.byWeekday,
     },
     recentTrades,
+  };
+}
+
+// ────────────────────────────────────────────────────────────
+// get_trade_plans  (read-only)
+// ────────────────────────────────────────────────────────────
+function toolTradePlans() {
+  const { plans, loadError } = useTradePlans.getState();
+  if (loadError) return { available: false, reason: `Saved plans could not be read: ${loadError}` };
+  if (plans.length === 0) return { available: false, reason: "No trade plans yet." };
+  const { trades, baseCapital, setups } = useJournal.getState();
+  const byId = new Map(trades.map((t) => [t.id, t]));
+  const open = plans.filter((p) => p.status === "active" || p.status === "triggered");
+  return {
+    available: true,
+    totalPlans: plans.length,
+    statusCounts: statusCounts(plans),
+    openPlans: open.map((p) => {
+      const t = p.review.tradeId ? byId.get(p.review.tradeId) : undefined;
+      const r = t ? computeRealizedR(p, t) : undefined;
+      return {
+        title: p.title ?? null, symbol: p.symbol, direction: p.direction, status: p.status, timeframe: p.timeframe || null,
+        setup: setups.find((s) => s.id === p.setupId)?.name ?? null,
+        entryZone: { low: p.entryLow ?? null, high: p.entryHigh ?? null, reference: entryReference(p) ?? null },
+        stop: p.stop ?? null, targets: p.targets, plannedRMultiplesOfTargets: plannedRMultiples(p),
+        plannedRiskPct: p.riskPct ?? null, plannedRiskUsd: plannedRiskDollars(p.riskPct, baseCapital) ?? null,
+        convictionSelfRated1to5: p.conviction ?? null,
+        thesisMacro: p.thesisMacro || null, thesisTechnical: p.thesisTechnical || null, catalysts: p.catalysts || null,
+        contextSnapshot: p.context ?? null,
+        linkedTrade: t ? { entryAt: t.entryAt, result: t.result, realizedR: r?.ok ? r.r : `n/a (${r && !r.ok ? r.reason : "no trade"})` } : null,
+        createdAt: p.createdAt, updatedAt: p.updatedAt,
+      };
+    }),
+    adherence: adherenceStats(plans, trades),
+    note: `Descriptive only. Plans are intentions, not forecasts. Quote the sample size n with every adherence figure. ${R_NOTE} Realized R uses the linked trade's actual entry; plannedRMultiplesOfTargets use the plan's zone midpoint.`,
   };
 }
 
@@ -553,6 +595,7 @@ export async function runCopilotTool(name: string, input: Record<string, unknown
     case "get_cot_positioning": return toolCotPositioning(input);
     case "get_market_lean": return toolMarketLean(input as { instrument?: string });
     case "get_track_record_stats": return toolTrackRecordStats(input);
+    case "get_trade_plans": return toolTradePlans();
     case "get_news_headlines": return toolNewsHeadlines(input);
     case "get_econ_calendar": return toolEconCalendar(input);
     case "get_portfolio_snapshot": return toolPortfolioSnapshot();
