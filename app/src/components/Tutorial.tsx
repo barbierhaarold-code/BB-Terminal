@@ -117,6 +117,14 @@ const STEPS: Step[] = [
     open: { code: "MACRO", label: "Open Macro Hub" },
   },
   {
+    title: "Institutional Holdings (HOLD)",
+    body: [
+      "What about 30 well-known managers (Berkshire, Bridgewater, Renaissance, BlackRock and others) held at the end of the last quarter, according to their SEC Form 13F filings, with the change versus the quarter before: new, added, reduced, exited. A second view lists the largest holders of a given stock.",
+      "These are long US positions as of quarter end, filed up to 45 days later: weeks old, never real-time, and not a signal. The page always shows the period of report and the filing date.",
+    ],
+    open: { code: "HOLD", label: "Open Institutional Holdings" },
+  },
+  {
     title: "Locked features",
     body: [
       "Some features (for example the AI Copilot, Tweets and Vessels on the map) are members-only. A locked panel shows a \"Members only\" card instead of data. It is not an error.",

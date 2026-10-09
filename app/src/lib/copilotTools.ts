@@ -33,6 +33,8 @@ import { getMacroSnapshot } from "@/lib/macro/client";
 import { buildViews } from "@/lib/macro/math";
 import { macroSummary } from "@/lib/macro/summary";
 import { ECONOMIES } from "@/lib/macro/config";
+import { fetchHolders, fetchHoldStatus, fetchManager, getManagers } from "@/lib/holdings/client";
+import { findManager, summariseHolders, summariseManager, summariseManagerList } from "@/lib/holdings/summary";
 import { getMarketLeanResults } from "@/lib/lean/data";
 import { INSTRUMENTS, LEAN_THRESHOLD, WALK_FORWARD_MULT, BASE_WEIGHTS, DRIVER_AGREEMENT_NOTE, GOLD_SOURCE_NOTE } from "@/lib/lean/config";
 import { historicalAgreement, driverHistoryNote } from "@/lib/lean/history";
@@ -68,6 +70,18 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
           enum: ECONOMIES.map((e) => e.id),
           description: "Optional economy code: US, EA (Euro Area), UK, JP, CA, AU, NZ, CH. Omit for all eight.",
         },
+      },
+    },
+  },
+  {
+    name: "get_institutional_holdings",
+    description: "Institutional Holdings (page code HOLD), READ-ONLY: SEC Form 13F-HR data. With no arguments: the list of about 30 curated managers (Berkshire, Bridgewater, Renaissance, BlackRock, Citadel, Pershing Square and others) with period of report, filing date and reported total. With `manager` (name fragment or CIK): that manager's largest positions with value, shares, % of portfolio and the change versus the previous quarter (new / added / reduced / unchanged) plus exited positions. With `ticker`: the largest holders of that stock among all 13F filers. ALWAYS state the period of report and filing date: these are quarter-end long US positions filed up to 45 days later, weeks old, never real-time, excluding shorts and most non-US holdings, and never a signal or advice. A position without a ticker has no confirmed CUSIP match: quote issuer and CUSIP, never guess a ticker. No write actions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        manager: { type: "string", description: "Optional manager name fragment (e.g. 'berkshire') or CIK." },
+        ticker: { type: "string", description: "Optional ticker (e.g. 'AAPL') to list its largest 13F holders. Ignored if `manager` is given." },
+        limit: { type: "number", description: "Rows to return, 1-25 (default 10)." },
       },
     },
   },
@@ -618,6 +632,26 @@ async function toolMacroSnapshot(input: { economy?: unknown }) {
 }
 
 // ────────────────────────────────────────────────────────────
+// get_institutional_holdings — wraps lib/holdings (the HOLD page's own server payloads)
+// ────────────────────────────────────────────────────────────
+async function toolInstitutionalHoldings(input: { manager?: unknown; ticker?: unknown; limit?: unknown }) {
+  const limit = Number(input.limit ?? 10);
+  try {
+    const st = await fetchHoldStatus();
+    if (st.state === "missing_contact") return { available: false, error: st.message };
+    if (st.state !== "ready" && st.state !== "mapping") return { available: false, error: st.state === "error" ? (st.message ?? "The holdings index failed to build.") : `The holdings index is still being built (${st.phase}). Try again in a few minutes.` };
+    if (input.manager != null && String(input.manager).trim() !== "") {
+      const f = findManager(String(input.manager));
+      if ("error" in f) return { available: false, error: f.error };
+      return summariseManager(await fetchManager(f.cik), limit);
+    }
+    if (input.ticker != null && String(input.ticker).trim() !== "") return summariseHolders(await fetchHolders(String(input.ticker).trim().toUpperCase()), limit);
+    const m = await getManagers();
+    return summariseManagerList(m.latestPeriod, m.managers);
+  } catch (e) { return { available: false, error: (e as Error).message }; }
+}
+
+// ────────────────────────────────────────────────────────────
 // Dispatcher
 // ────────────────────────────────────────────────────────────
 export async function runCopilotTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -625,6 +659,7 @@ export async function runCopilotTool(name: string, input: Record<string, unknown
     case "get_scalper_snapshot": return toolScalperSnapshot();
     case "get_cot_positioning": return toolCotPositioning(input);
     case "get_macro_snapshot": return toolMacroSnapshot(input);
+    case "get_institutional_holdings": return toolInstitutionalHoldings(input);
     case "get_market_lean": return toolMarketLean(input as { instrument?: string });
     case "get_track_record_stats": return toolTrackRecordStats(input);
     case "get_trade_plans": return toolTradePlans();
