@@ -6,10 +6,13 @@ import backtest from "./backtest.json";
 // lives here and is shown on the page's methodology panel.
 // ────────────────────────────────────────────────────────────
 
+/** Gold history comes from COMEX futures daily bars (roll gaps, basis vs spot), never from spot. */
+export const GOLD_SOURCE_NOTE = "Gold futures (GC=F), not spot";
+
 export interface SeriesDef { id: string; label: string; kind: SeriesKind; /** Yahoo symbol; absent for Fed yields */ yahoo?: string }
 
 export const SERIES: Record<string, SeriesDef> = {
-  XAU: { id: "XAU", label: "Gold (GC=F)", kind: "price", yahoo: "GC=F" },
+  XAU: { id: "XAU", label: GOLD_SOURCE_NOTE, kind: "price", yahoo: "GC=F" },
   DXY: { id: "DXY", label: "US Dollar Index", kind: "price", yahoo: "DX-Y.NYB" },
   EURUSD: { id: "EURUSD", label: "EUR/USD", kind: "price", yahoo: "EURUSD=X" },
   GBPUSD: { id: "GBPUSD", label: "GBP/USD", kind: "price", yahoo: "GBPUSD=X" },
@@ -61,7 +64,7 @@ export const DRIVER_LABELS: Record<DriverId, string> = {
 /** Wording shown wherever driver agreement appears (page, tooltips, methodology, Copilot tool). */
 export const DRIVER_AGREEMENT_NOTE = "Share of weighted drivers pointing the same way. Not a probability of being right.";
 
-/** |composite| at or above this = a directional lean; below = Mixed. */
+/** |composite| at or above this = Supportive / Headwind backdrop; below = Neutral. */
 export const LEAN_THRESHOLD = 0.25;
 /** |score| below this reads as neutral for a component's direction arrow. */
 export const NEUTRAL_BAND = 0.1;
@@ -93,6 +96,8 @@ export interface InstrumentDef {
   /** skip the equity-trend leg of the risk regime (the instrument IS the equity trend) */
   riskIsEquity?: boolean;
   cross: Signed[];
+  /** where the instrument's own history comes from, when that is not obvious */
+  sourceNote?: string;
 }
 
 const DXYd = (sign: 1 | -1, why: string): Signed => ({ series: "DXY", sign, why });
@@ -101,7 +106,7 @@ const Y2 = (sign: 1 | -1, why: string): Signed => ({ series: "UST2", sign, why }
 
 export const INSTRUMENTS: InstrumentDef[] = [
   {
-    id: "XAUUSD", label: "Gold (XAU/USD)", short: "XAUUSD", series: "XAU", group: "Metals",
+    id: "XAUUSD", label: "Gold (XAU/USD)", short: "XAUUSD", series: "XAU", group: "Metals", sourceNote: GOLD_SOURCE_NOTE,
     cot: { contractKey: "gold", groupId: "m_money", sign: 1, displayOnly: false, why: "COMEX gold, Managed Money: the speculative group in the Disaggregated report." },
     dollarRates: [DXYd(-1, "stronger dollar weighs on gold"), Y10(-1, "higher nominal yields raise the cost of holding gold"), Y2(-1, "higher front-end yields, same logic"), { series: "TIP", sign: 1, why: "real-yield proxy: TIPS price up ≈ real yields down" }],
     riskSens: -1,

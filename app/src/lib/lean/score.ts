@@ -3,7 +3,7 @@ import {
   type InstrumentDef, type Signed,
 } from "./config";
 import type {
-  Bar, Component, CotReading, Direction, DriverId, DriverResult, Flip, LeanInputs, LeanLabel, LeanResult, SeriesKind,
+  Bar, Component, CotReading, Direction, DriverId, DriverResult, Flip, LeanInputs, Backdrop, LeanResult, SeriesKind,
 } from "./types";
 
 // ────────────────────────────────────────────────────────────
@@ -18,7 +18,7 @@ import type {
 // signAgreement = |Σ w·s| / Σ w·|s|      (1 = all weighted scores point the same way)
 // Completeness= Σ w·c / Σ w over all weighted drivers (c = share of the driver's inputs present)
 // Driver agreement = round(100 · signAgreement · Completeness) — the share of weighted drivers pointing the
-// same way. It is NOT a probability of being right.
+// same way. It is NOT a probability of being right. Shown only when at least 2 drivers carry weight.
 // ────────────────────────────────────────────────────────────
 
 const TREND_SIGMA_WINDOW = 60;
@@ -280,9 +280,13 @@ export function computeLean(inputs: LeanInputs): LeanResult {
   const signAgreement = absNumer > 0 ? Math.abs(numer) / absNumer : 0;
   const allW = weighted.reduce((a, d) => a + d.weight, 0);
   const completeness = allW > 0 ? weighted.reduce((a, d) => a + d.weight * (d.score == null ? 0 : d.completeness), 0) / allW : 0;
-  const driverAgreement = composite == null ? 0 : Math.round(100 * signAgreement * completeness);
-  const label: LeanLabel = composite == null ? "Insufficient data"
-    : composite >= LEAN_THRESHOLD ? "Bullish lean" : composite <= -LEAN_THRESHOLD ? "Bearish lean" : "Mixed";
+  const driverAgreementRaw = composite == null ? 0 : Math.round(100 * signAgreement * completeness);
+  // Driver agreement is only meaningful when at least two drivers carry weight; with one it is trivially 100 (or just completeness).
+  const driverAgreement = weighted.length >= 2 && composite != null ? driverAgreementRaw : null;
+  const label: Backdrop = composite == null ? "No data"
+    : composite >= LEAN_THRESHOLD ? "Supportive" : composite <= -LEAN_THRESHOLD ? "Headwind" : "Neutral";
+  const backdropName = weighted.length === 1 && weighted[0].id === "dollarRates" ? "Dollar & rates backdrop"
+    : weighted.length ? `${weighted.map((d) => d.label).join(" + ")} backdrop` : "Backdrop";
 
   // Cross-asset: how many confirmers agree with the composite's direction.
   const crossD = drivers.find((d) => d.id === "cross")!;
@@ -294,29 +298,25 @@ export function computeLean(inputs: LeanInputs): LeanResult {
     else conf.against++;
   }
 
-  if (composite != null && avail.length < 2) {
-    ctx.warnings.push(`Only ${avail.length} driver${avail.length === 1 ? " carries" : "s carry"} weight, so driver agreement reflects data completeness only and says nothing about reliability.`);
-  }
-
   const flips: Flip[] = [];
   if (composite != null) {
     const T = LEAN_THRESHOLD;
     const c = composite;
     flips.unshift({
-      text: label === "Mixed"
-        ? `Composite is ${sgn(c)}${fmtN(Math.abs(c), 2)}. It becomes a Bullish lean at +${fmtN(T, 2)} or above and a Bearish lean at −${fmtN(T, 2)} or below.`
-        : `Composite is ${sgn(c)}${fmtN(Math.abs(c), 2)}. It reverts to Mixed once it ${c > 0 ? "falls below" : "rises above"} ${c > 0 ? "+" : "−"}${fmtN(T, 2)}, and flips direction only past ${c > 0 ? "−" : "+"}${fmtN(T, 2)}.`,
+      text: label === "Neutral"
+        ? `Composite is ${sgn(c)}${fmtN(Math.abs(c), 2)}. The backdrop becomes Supportive at +${fmtN(T, 2)} or above and Headwind at −${fmtN(T, 2)} or below.`
+        : `Composite is ${sgn(c)}${fmtN(Math.abs(c), 2)}. The backdrop reverts to Neutral once it ${c > 0 ? "falls below" : "rises above"} ${c > 0 ? "+" : "−"}${fmtN(T, 2)}, and flips direction only past ${c > 0 ? "−" : "+"}${fmtN(T, 2)}.`,
     });
   }
-  // Only levels belonging to drivers that carry weight can change the lean; say so for the rest.
+  // Only levels belonging to drivers that carry weight can change the backdrop; say so for the rest.
   const weightOf = (id: DriverId) => drivers.find((d) => d.id === id)?.weight ?? 0;
   flips.push(...ctx.flips.filter((f) => weightOf(f.driver) > 0).map((f) => ({ text: f.text })));
   const zeroed = drivers.filter((d) => d.weight === 0 && d.components.length > 0 && !(d.id === "positioning" && inst.cot?.displayOnly)).map((d) => d.label);
-  if (zeroed.length) flips.push({ text: `${zeroed.join(", ")} carry weight 0 (walk-forward test found no demonstrated edge), so crossing their levels does not change the lean even though they are shown.` });
+  if (zeroed.length) flips.push({ text: `${zeroed.join(", ")} carry weight 0 (walk-forward test found no demonstrated edge), so crossing their levels does not change the backdrop even though they are shown.` });
 
   const own = ctx.lastBar[inst.series] ?? null;
   return {
-    instrumentId: inst.id, label, composite, driverAgreement, signAgreement, completeness, drivers,
+    instrumentId: inst.id, label, backdropName, weightedDriverCount: weighted.length, composite, driverAgreement, driverAgreementRaw, signAgreement, completeness, drivers,
     confirmers: conf, flips, warnings: ctx.warnings,
     freshness: { ownLastBar: own, seriesLastBar: ctx.lastBar, cotAsOf: inputs.cot?.asOf ?? null },
   };

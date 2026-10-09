@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { computeLean, sliceAsOf, sma, trendOf } from "./score";
-import { DRIVER_AGREEMENT_NOTE, INSTRUMENTS, LEAN_THRESHOLD, WALK_FORWARD_MULT, allSeriesIds } from "./config";
+import { DRIVER_AGREEMENT_NOTE, INSTRUMENTS, LEAN_THRESHOLD, SERIES, WALK_FORWARD_MULT, allSeriesIds } from "./config";
 import type { Bar, CotReading, LeanInputs } from "./types";
 
 // ── fixtures: fully deterministic, no randomness ──
@@ -89,18 +89,18 @@ describe("computeLean", () => {
     expect(base.freshness.ownLastBar).toBe(ASOF);
   });
 
-  it("an up-trending world gives EURUSD a Bullish lean; mirrored data gives Bearish", () => {
+  it("an up-trending world gives EURUSD a Supportive backdrop; mirrored data gives Headwind", () => {
     const bull = run("EURUSD", { cot: cot(90) });
     // EURUSD fixture: own up, DXY up (bearish for EURUSD) and yields up (bearish) ⇒ mixed signals; use explicit mirror instead
     const s = allUp();
     s.EURUSD = up(); s.DXY = down(); s.UST10 = yieldUp().map((b) => ({ ...b, close: 8 - b.close })); s.UST2 = s.UST10;
     s.GBPUSD = up(); s.AUDUSD = up(); s.USDCHF = down(); s.VIX = down(20); s.SPX = up();
     const r = computeLean({ instrumentId: "EURUSD", asOf: ASOF, series: s, cot: cot(90) });
-    expect(r.label).toBe("Bullish lean");
+    expect(r.label).toBe("Supportive");
     expect(r.composite!).toBeGreaterThanOrEqual(LEAN_THRESHOLD);
     expect(bull.drivers.find((d) => d.id === "dollarRates")!.score!).toBeLessThan(0); // strong dollar + rising yields
     const m = { ...s, EURUSD: down(), DXY: up(), GBPUSD: down(), AUDUSD: down(), USDCHF: up(), VIX: up(15), SPX: down(), UST10: yieldUp(), UST2: yieldUp() };
-    expect(computeLean({ instrumentId: "EURUSD", asOf: ASOF, series: m, cot: cot(10) }).label).toBe("Bearish lean");
+    expect(computeLean({ instrumentId: "EURUSD", asOf: ASOF, series: m, cot: cot(10) }).label).toBe("Headwind");
   });
 
   it("driver agreement = round(100 × signAgreement × completeness) with the documented formulas", () => {
@@ -121,9 +121,9 @@ describe("computeLean", () => {
     const s = allUp();
     s.DXY = down(); s.UST10 = yieldUp().map((b) => ({ ...b, close: 8 - b.close })); s.UST2 = s.UST10; s.VIX = up(15);
     const r = computeLean({ instrumentId: "XAUUSD", asOf: ASOF, series: s, cot: cot(100) });
-    expect(r.label).toBe("Bullish lean");
+    expect(r.label).toBe("Supportive");
     expect(r.completeness).toBe(1);
-    expect(r.driverAgreement).toBeGreaterThan(95);
+    expect(r.driverAgreement!).toBeGreaterThan(95);
   });
 
   it("a missing driver degrades completeness (and driver agreement when the rest agree) and is reported — never silently dropped", () => {
@@ -139,7 +139,7 @@ describe("computeLean", () => {
     expect(dr.components.find((c) => c.id === "DXY")!.missing).toContain("HTTP 502");
     expect(r.completeness).toBeCloseTo(0.8, 12); // dollar & rates carries 0.20 of the 1.00 weight
     expect(r.completeness).toBeLessThan(full.completeness);
-    expect(r.driverAgreement).toBeLessThan(full.driverAgreement);
+    expect(r.driverAgreement!).toBeLessThan(full.driverAgreement!);
     expect(r.warnings.some((w) => w.includes("Dollar & rates"))).toBe(true);
   });
 
@@ -159,11 +159,12 @@ describe("computeLean", () => {
     expect(r.completeness).toBeLessThan(withCot.completeness);
   });
 
-  it("missing target series ⇒ Insufficient data, driver agreement 0", () => {
+  it("missing target series ⇒ No data, driver agreement n/a", () => {
     const s = allUp(); delete s.EURUSD; delete s.DXY; delete s.UST10; delete s.UST2; delete s.GBPUSD; delete s.AUDUSD; delete s.USDCHF; delete s.VIX; delete s.SPX;
     const r = computeLean({ instrumentId: "EURUSD", asOf: ASOF, series: s, cot: null });
-    expect(r.label).toBe("Insufficient data");
-    expect(r.driverAgreement).toBe(0);
+    expect(r.label).toBe("No data");
+    expect(r.driverAgreement).toBeNull();
+    expect(r.driverAgreementRaw).toBe(0);
     expect(r.composite).toBeNull();
   });
 
@@ -241,13 +242,46 @@ describe("computeLean", () => {
     } finally { (WALK_FORWARD_MULT as Record<string, number>).trend = 1; }
   });
 
-  it("warns when fewer than two drivers carry weight (agreement is then trivial)", () => {
+  it("driver agreement is n/a unless at least two drivers carry weight (the raw number is still computed)", () => {
     const keep = { ...WALK_FORWARD_MULT };
     for (const k of Object.keys(WALK_FORWARD_MULT)) (WALK_FORWARD_MULT as Record<string, number>)[k] = k === "dollarRates" ? 1 : 0;
     try {
-      const r = run("EURUSD");
-      expect(r.driverAgreement).toBe(100);
-      expect(r.warnings.some((w) => w.includes("Only 1 driver carries weight"))).toBe(true);
+      const one = run("EURUSD");
+      expect(one.weightedDriverCount).toBe(1);
+      expect(one.driverAgreement).toBeNull();
+      expect(one.driverAgreementRaw).toBe(100);
+      expect(one.backdropName).toBe("Dollar & rates backdrop");
+      (WALK_FORWARD_MULT as Record<string, number>).trend = 1;
+      const two = run("EURUSD");
+      expect(two.weightedDriverCount).toBe(2);
+      expect(two.driverAgreement).toBe(two.driverAgreementRaw);
+      expect(two.backdropName).not.toBe("Dollar & rates backdrop");
     } finally { Object.assign(WALK_FORWARD_MULT, keep); }
+  });
+
+  it("backdrop label is derived only from the drivers that carry weight, same ±0.25 thresholds", () => {
+    const keep = { ...WALK_FORWARD_MULT };
+    for (const k of Object.keys(WALK_FORWARD_MULT)) (WALK_FORWARD_MULT as Record<string, number>)[k] = k === "dollarRates" ? 1 : 0;
+    try {
+      // dollar strong + yields rising ⇒ headwind for EUR/USD no matter how bullish the zero-weight drivers are
+      const s = allUp(); s.EURUSD = up(); s.GBPUSD = up(); s.AUDUSD = up(); s.USDCHF = down(); s.SPX = up(); s.VIX = down(20);
+      const r = computeLean({ instrumentId: "EURUSD", asOf: ASOF, series: s, cot: cot(100) });
+      expect(r.drivers.find((d) => d.id === "trend")!.score!).toBeGreaterThan(0.25);
+      expect(r.label).toBe("Headwind");
+      const dr = r.drivers.find((d) => d.id === "dollarRates")!;
+      expect(r.composite!).toBeCloseTo(dr.score!, 12);
+      // no weighted driver has data ⇒ No data
+      const none = allUp(); delete none.DXY; delete none.UST10; delete none.UST2;
+      const nd = computeLean({ instrumentId: "EURUSD", asOf: ASOF, series: none, cot: cot(100) });
+      expect(nd.label).toBe("No data");
+      expect(nd.composite).toBeNull();
+      // within ±0.25 ⇒ Neutral
+      expect(LEAN_THRESHOLD).toBe(0.25);
+    } finally { Object.assign(WALK_FORWARD_MULT, keep); }
+  });
+
+  it("gold history is labelled as futures, not spot", () => {
+    expect(INSTRUMENTS.find((i) => i.id === "XAUUSD")!.sourceNote).toBe("Gold futures (GC=F), not spot");
+    expect(SERIES.XAU.label).toBe("Gold futures (GC=F), not spot");
   });
 });

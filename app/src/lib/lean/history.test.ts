@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agreementPhrase, historicalAgreement } from "./history";
+import { agreementPhrase, driverHistoryNote, historicalAgreement, walkForwardSummary } from "./history";
 
 const st = (over: object) => ({ n: 14535, hitRate: 0.514, expected: 0.498, edge: 0.016, ...over });
 
@@ -19,6 +19,19 @@ describe("historical agreement wording", () => {
     const h = historicalAgreement("XAUUSD");
     expect(h.text).toContain("13 instruments pooled");
     expect(h.text).toContain("This instrument");
-    expect(h.caveat).toContain("does not make the lean predictive");
+    expect(h.caveat).toContain("does not make the backdrop predictive");
+  });
+
+  it("risk-driver history note appears only because the stored result says it was significantly below chance at 20 days", () => {
+    expect(driverHistoryNote("risk")).toBe("Historically below chance at 20 days (shown for context, weight 0).");
+    expect(driverHistoryNote("trend")).toBeNull();
+  });
+  it("walk-forward summary carries intervals, dates, the pre-registered rule and the re-run command", () => {
+    const w = walkForwardSummary();
+    expect(w.rows).toHaveLength(6);
+    expect(w.rows.every((r) => /95% CI|no interval|no directional/.test(r.next20d))).toBe(true);
+    expect(w.command).toBe("cd app && npm run lean:backtest");
+    expect(w.rule).toContain("Pre-registered");
+    expect(w.start).toBe("2012-01-01");
   });
 });

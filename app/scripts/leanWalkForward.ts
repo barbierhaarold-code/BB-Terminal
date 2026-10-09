@@ -256,9 +256,9 @@ async function main() {
     for (const [g, arr] of Object.entries(byInst)) {
       out[g] = {};
       for (const h of HORIZONS) {
-        const dir = arr.filter((s) => (s.res.label === "Bullish lean" || s.res.label === "Bearish lean") && s.ret[h] != null);
+        const dir = arr.filter((s) => (s.res.label === "Supportive" || s.res.label === "Headwind") && s.ret[h] != null);
         const mk = (xs: Sample[]) => stat(xs.map((s) => ({ t: s.t, sig: s.res.composite!, ret: s.ret[h]! })), h, dates);
-        out[g][h] = { ...mk(dir), coverage: arr.length ? dir.length / arr.length : 0, agreementGe50: mk(dir.filter((s) => s.res.driverAgreement >= 50)) };
+        out[g][h] = { ...mk(dir), coverage: arr.length ? dir.length / arr.length : 0, agreementGe50: mk(dir.filter((s) => s.res.driverAgreementRaw >= 50)) };
         if (g === "POOLED" && h === 20) {
           // cross-check without any bootstrap: only every 20th date, so the forward windows do not overlap in time
           const keep = new Set(dates.filter((_, i) => i % 20 === 0));
@@ -273,7 +273,7 @@ async function main() {
     generatedAt: new Date().toISOString().slice(0, 10),
     dataThrough: lastDate,
     start: START, split: SPLIT, horizons: HORIZONS,
-    method: "Daily walk-forward, no look-ahead: lean at close t vs the move from close t to close t+h (h = 5 / 20 bars). Mixed days excluded. Agreement is compared with the chance level implied by the signal mix and the base rate of up moves. Uncertainty: 95% intervals from a seeded moving-block bootstrap over dates (2000 resamples, blocks of 2h consecutive dates, all instruments of a date resampled together); significant only if the interval for (hit rate − chance) excludes 0. nonOverlap20 is a cross-check using every 20th date only.",
+    method: "Daily walk-forward, no look-ahead: the Supportive/Headwind backdrop at close t vs the move from close t to close t+h (h = 5 / 20 bars). Neutral days excluded. Agreement is compared with the chance level implied by the signal mix and the base rate of up moves. Uncertainty: 95% intervals from a seeded moving-block bootstrap over dates (2000 resamples, blocks of 2h consecutive dates, all instruments of a date resampled together); significant only if the interval for (hit rate − chance) excludes 0. nonOverlap20 is a cross-check using every 20th date only.",
     weightRule: "A driver keeps its base weight only if its pooled 20-day agreement on the TRAIN period (before 2020) beats chance by >= 1 standard error; otherwise weight 0. The TEST period (2020+) never influenced any weight.",
     baseWeights: BASE_WEIGHTS, decisions,
     drivers: { train: drvTrain, test: drvTest, all: drvAll },

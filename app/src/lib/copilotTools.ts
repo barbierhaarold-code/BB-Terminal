@@ -28,8 +28,8 @@ import type { AnthropicTool } from "@/lib/copilotClient";
 import { getCotSnapshot, cotContract, cotContractSummary, cotSnapshotMeta, isKnownCotKey } from "@/lib/cot";
 import { COT_CONTRACTS } from "@/lib/cotContracts";
 import { getMarketLeanResults } from "@/lib/lean/data";
-import { INSTRUMENTS, LEAN_THRESHOLD, WALK_FORWARD_MULT, BASE_WEIGHTS, DRIVER_AGREEMENT_NOTE } from "@/lib/lean/config";
-import { historicalAgreement } from "@/lib/lean/history";
+import { INSTRUMENTS, LEAN_THRESHOLD, WALK_FORWARD_MULT, BASE_WEIGHTS, DRIVER_AGREEMENT_NOTE, GOLD_SOURCE_NOTE } from "@/lib/lean/config";
+import { historicalAgreement, driverHistoryNote } from "@/lib/lean/history";
 
 export const COPILOT_TOOLS: AnthropicTool[] = [
   {
@@ -53,7 +53,7 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
   },
   {
     name: "get_market_lean",
-    description: "Market Lean: a transparent, rule-based directional CONTEXT read per instrument (XAUUSD, DXY, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, SPX, NDX, WTI, BTC), the same numbers as the LEAN page. Each has a label (Bullish lean / Bearish lean / Mixed), driver agreement 0-100 (= sign agreement x data completeness; 'Share of weighted drivers pointing the same way. Not a probability of being right.'), per-driver scores/weights/raw inputs (trend, COT positioning, dollar & rates, risk regime, cross-asset), what would change the lean, and data freshness. It is context, never a trade signal or advice: never phrase it as buy/sell. A walk-forward test found no statistically significant edge in the pooled lean, so NEVER present a lean as a prediction, probability or forecast; always relay the 'historicalAgreement' text and 'driverAgreementNote' with it. Report any n/a driver or warning plainly. COT inside it is weekly (positions as of Tuesday), not live.",
+    description: "Market Context (page code LEAN): a transparent, rule-based BACKDROP per instrument (XAUUSD, DXY, EURUSD, GBPUSD, USDJPY, AUDUSD, USDCAD, USDCHF, NZDUSD, SPX, NDX, WTI, BTC), the same numbers as the page. 'backdrop' is Supportive / Headwind / Neutral / No data for that instrument, derived only from the drivers that carry weight (today: Dollar & rates), with a composite score, every driver's raw inputs, scores and weights (trend, COT positioning, risk regime and cross-asset are shown but carry weight 0), what would change the backdrop, and data freshness. 'driverAgreement' is the share of weighted drivers pointing the same way, not a probability of being right, and is null (n/a) unless at least two drivers carry weight. The walk-forward test found no statistically significant edge in the combined backdrop, so NEVER present it as a forecast, prediction, probability, signal or buy/sell advice; always relay 'historicalAgreement' and 'driverAgreementNote' with it. Gold history is futures (GC=F), not spot. COT inside it is weekly (positions as of Tuesday), not live. Report any n/a input or warning plainly.",
     input_schema: {
       type: "object",
       properties: {
@@ -505,26 +505,33 @@ async function toolMarketLean(input: { instrument?: string }) {
   try { out = await getMarketLeanResults(); }
   catch (e) { return { available: false, error: (e as Error).message }; }
   const { bundle, results } = out;
+  const ha = historicalAgreement(input.instrument);
   const meta = {
-    note: "Context only, not financial advice. Rule-based, from daily data; not a trade signal.",
+    note: "Context only, not financial advice. Rule-based, from daily data; not a forecast and not a trade signal.",
+    backdropThreshold: LEAN_THRESHOLD,
     driverAgreementNote: DRIVER_AGREEMENT_NOTE,
-    historicalAgreement: historicalAgreement(input.instrument).text,
-    historicalAgreementCaveat: historicalAgreement(input.instrument).caveat,
-    leanThreshold: LEAN_THRESHOLD,
+    historicalAgreement: ha.text,
+    historicalAgreementCaveat: ha.caveat,
     baseWeights: BASE_WEIGHTS, walkForwardMultiplier: WALK_FORWARD_MULT,
-    walkForward: "Walk-forward agreement is close to chance and not statistically significant for the pooled lean and most drivers; drivers without demonstrated edge carry weight 0 but are still shown. Never describe a lean as predictive.",
+    walkForward: "Walk-forward agreement is close to chance and not statistically significant for the combined backdrop and most drivers; drivers without demonstrated edge carry weight 0 but are still shown. Never describe the backdrop as predictive.",
+    goldSource: GOLD_SOURCE_NOTE,
     inputsThatFailed: bundle.seriesErrors, cotError: bundle.cotError ?? null, fetchedAt: bundle.fetchedAt,
   };
   const round = (n: number | null) => (n == null ? null : Math.round(n * 100) / 100);
+  const agreement = (r: (typeof results)[number]) => (r.driverAgreement == null
+    ? { driverAgreement: null, driverAgreementDisplay: r.label === "No data" ? "n/a" : `n/a (${r.weightedDriverCount === 0 ? "no" : "one"} weighted driver)` }
+    : { driverAgreement: r.driverAgreement, driverAgreementDisplay: `${r.driverAgreement}/100` });
   if (input.instrument) {
     const r = results.find((x) => x.instrumentId === input.instrument);
     if (!r) return { available: false, error: `Unknown instrument "${input.instrument}". Valid: ${INSTRUMENTS.map((i) => i.id).join(", ")}.` };
+    const inst = INSTRUMENTS.find((i) => i.id === r.instrumentId)!;
     return {
-      available: true, instrument: r.instrumentId, label: r.label, composite: round(r.composite), driverAgreement: r.driverAgreement,
-      signAgreement: round(r.signAgreement), completeness: round(r.completeness), confirmers: r.confirmers,
+      available: true, instrument: r.instrumentId, backdropName: r.backdropName, backdrop: r.label, composite: round(r.composite),
+      ...agreement(r), dataCompleteness: round(r.completeness), confirmers: r.confirmers,
+      historySource: inst.sourceNote ?? null,
       drivers: r.drivers.map((d) => ({
         driver: d.label, score: round(d.score), direction: d.direction, baseWeight: d.baseWeight, walkForwardMultiplier: d.multiplier, weight: round(d.weight),
-        displayOnly: d.displayOnly, note: d.note,
+        displayOnly: d.displayOnly, note: d.note, historicalNote: driverHistoryNote(d.id),
         inputs: d.components.map((c) => ({ input: c.label, raw: c.raw, score: round(c.score), direction: c.direction, missing: c.missing })),
       })),
       whatWouldChangeIt: r.flips.map((f) => f.text), warnings: r.warnings, freshness: r.freshness, meta,
@@ -532,7 +539,7 @@ async function toolMarketLean(input: { instrument?: string }) {
   }
   return {
     available: true,
-    instruments: results.map((r) => ({ instrument: r.instrumentId, label: r.label, composite: round(r.composite), driverAgreement: r.driverAgreement, lastBar: r.freshness.ownLastBar, warnings: r.warnings.length })),
+    instruments: results.map((r) => ({ instrument: r.instrumentId, backdropName: r.backdropName, backdrop: r.label, composite: round(r.composite), ...agreement(r), lastBar: r.freshness.ownLastBar, historySource: INSTRUMENTS.find((i) => i.id === r.instrumentId)!.sourceNote ?? null, warnings: r.warnings.length })),
     meta,
   };
 }

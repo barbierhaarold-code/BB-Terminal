@@ -43,7 +43,7 @@ export const FUNCTIONS: FunctionDef[] = [
   { code: "NH",   name: "News Hub",              needsSymbol: false, group: "Markets", summary: "News, tweets, econ calendar, earnings, corporate, prediction markets, Fed ops, market hours, live TV" },
   { code: "INVEST", name: "Investors / Institutional", needsSymbol: false, group: "Markets", summary: "13F fund holdings, who-holds-a-ticker ranking, insider trading, congressional trading, live on-chain whale trades" },
   { code: "COT",  name: "Commitments of Traders", needsSymbol: false, group: "Markets", summary: "Official CFTC positioning (weekly) — net by trader group, weekly change, open interest, 3Y/5Y percentile, history chart" },
-  { code: "LEAN", name: "Market Lean",           needsSymbol: false, group: "Markets", summary: "Transparent directional context per instrument — trend, COT, dollar & rates, risk regime, cross-asset; driver agreement, per-driver detail, walk-forward history" },
+  { code: "LEAN", name: "Market Context",        needsSymbol: false, group: "Markets", summary: "Dollar & rates backdrop per instrument with trend, COT, risk-regime and cross-asset detail; every input shown, plus walk-forward history. Context only, not a forecast" },
   { code: "QUANT", name: "Analytics / Quant",   needsSymbol: false, group: "Markets", summary: "Correlation matrix, cointegration/z-score pairs trading, beta & hedge ratio, sector rotation, COT positioning" },
 
   { code: "CURV", name: "US Yield Curve",        needsSymbol: false, group: "Macro", summary: "Treasury par yield curve" },

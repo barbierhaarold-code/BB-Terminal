@@ -4,7 +4,8 @@ export interface Bar { date: string; close: number }
 
 export type DriverId = "trend" | "positioning" | "dollarRates" | "risk" | "cross";
 export type Direction = "bullish" | "bearish" | "neutral" | "n/a";
-export type LeanLabel = "Bullish lean" | "Bearish lean" | "Mixed" | "Insufficient data";
+/** Backdrop for THIS instrument from the drivers that carry weight: Supportive (composite ≥ +0.25), Headwind (≤ −0.25), Neutral, or No data. Context, never a forecast. */
+export type Backdrop = "Supportive" | "Headwind" | "Neutral" | "No data";
 
 /** A series the engine can read: Yahoo daily closes, or a Fed yield in percent. */
 export type SeriesKind = "price" | "yield" | "vol";
@@ -69,11 +70,17 @@ export interface Flip { text: string }
 
 export interface LeanResult {
   instrumentId: string;
-  label: LeanLabel;
+  label: Backdrop;
+  /** e.g. "Dollar & rates backdrop", derived from the drivers that carry weight */
+  backdropName: string;
+  /** number of drivers carrying weight > 0 for this instrument */
+  weightedDriverCount: number;
   /** weighted composite in [-1, 1] over available drivers */
   composite: number | null;
-  /** 0-100 = round(100 × signAgreement × completeness): share of weighted drivers pointing the same way. NOT a probability of being right. */
-  driverAgreement: number;
+  /** 0-100 = round(100 × signAgreement × completeness): share of weighted drivers pointing the same way. NOT a probability of being right. null ("n/a") unless at least 2 drivers carry weight. */
+  driverAgreement: number | null;
+  /** the same number, always computed (backtests use it); never shown when fewer than two drivers carry weight */
+  driverAgreementRaw: number;
   /** 0..1 = |Σ w·s| / Σ w·|s| */
   signAgreement: number;
   completeness: number;
