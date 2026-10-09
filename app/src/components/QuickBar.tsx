@@ -16,7 +16,7 @@ const CATEGORIES: Category[] = [
   { label: "Markets", codes: ["WEI", "MOV", "QCARD", "HEAT", "INVEST", "CURV", "COT", "LEAN", "MACRO"] },
   { label: "Forex", codes: ["FXC"] },
   { label: "Crypto", codes: ["CRYPTO"] },
-  { label: "News", codes: ["NI", "NH"] },
+  { label: "News", codes: ["NI", "NH", "POLICY"] },
   { label: "Options", codes: ["OMON"] },
   { label: "Journal", codes: ["TRACK", "PLAN"] },
 ];

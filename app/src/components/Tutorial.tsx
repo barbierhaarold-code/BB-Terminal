@@ -117,6 +117,14 @@ const STEPS: Step[] = [
     open: { code: "MACRO", label: "Open Macro Hub" },
   },
   {
+    title: "Policy Feed (POLICY)",
+    body: [
+      "One stream of official publications from central banks (Fed, ECB, Bank of England, Bank of Japan, SNB, Bank of Canada, RBNZ, Riksbank) and multilateral bodies (BIS, IMF): press releases, speeches, research and statistics, each with its date and a link to the institution's own page.",
+      "Filter by institution, type or currency and search the titles. Items new since your last visit are marked. A health strip shows which feeds could be read; titles are shown as published, never summarised, and nothing here is a signal.",
+    ],
+    open: { code: "POLICY", label: "Open Policy Feed" },
+  },
+  {
     title: "Locked features",
     body: [
       "Some features (for example the AI Copilot, Tweets and Vessels on the map) are members-only. A locked panel shows a \"Members only\" card instead of data. It is not an error.",

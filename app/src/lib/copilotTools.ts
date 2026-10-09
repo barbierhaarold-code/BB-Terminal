@@ -33,6 +33,8 @@ import { getMacroSnapshot } from "@/lib/macro/client";
 import { buildViews } from "@/lib/macro/math";
 import { macroSummary } from "@/lib/macro/summary";
 import { ECONOMIES } from "@/lib/macro/config";
+import { getPolicySnapshot } from "@/lib/policy/client";
+import { summarisePolicy, type PolicyToolInput } from "@/lib/policy/summary";
 import { getMarketLeanResults } from "@/lib/lean/data";
 import { INSTRUMENTS, LEAN_THRESHOLD, WALK_FORWARD_MULT, BASE_WEIGHTS, DRIVER_AGREEMENT_NOTE, GOLD_SOURCE_NOTE } from "@/lib/lean/config";
 import { historicalAgreement, driverHistoryNote } from "@/lib/lean/history";
@@ -68,6 +70,22 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
           enum: ECONOMIES.map((e) => e.id),
           description: "Optional economy code: US, EA (Euro Area), UK, JP, CA, AU, NZ, CH. Omit for all eight.",
         },
+      },
+    },
+  },
+  {
+    name: "get_policy_feed",
+    description: "Policy Feed (page code POLICY), READ-ONLY: the latest official publications of central banks (Federal Reserve, ECB, Bank of England, Bank of Japan, SNB, Bank of Canada, RBNZ, Riksbank, RBA) and multilateral bodies (BIS, IMF) from their own RSS/Atom feeds: title, institution, type, content type (press release, speech, research, statistics), currency of the issuing central bank, publication date, an excerpt ONLY if the feed itself provides one, and the link to the institution's page. Filters: institution (name fragment), institution_type, content_type, currency (USD, EUR, GBP, JPY, CHF, CAD, AUD, NZD, SEK, or 'none'), query (text in title/excerpt), since_days, limit (1-50, default 20). Also returns which feeds are unavailable and why. Quote titles, dates and links; do not summarise content you have not read, do not infer a policy stance from a title, never present an item as a signal. No write actions.",
+    input_schema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Items to return, 1-50 (default 20)." },
+        institution: { type: "string", description: "Optional institution name fragment, e.g. 'federal reserve', 'ecb', 'bank of england'." },
+        institution_type: { type: "string", enum: ["central bank", "multilateral", "government"] },
+        content_type: { type: "string", enum: ["press release", "speech", "research", "statistics"] },
+        currency: { type: "string", description: "Optional currency of the issuing central bank, or 'none' for BIS/IMF." },
+        query: { type: "string", description: "Optional text to search in titles and excerpts." },
+        since_days: { type: "number", description: "Optional: only items published in the last N days." },
       },
     },
   },
@@ -618,6 +636,16 @@ async function toolMacroSnapshot(input: { economy?: unknown }) {
 }
 
 // ────────────────────────────────────────────────────────────
+// get_policy_feed — wraps lib/policy (the POLICY page's own cached snapshot)
+// ────────────────────────────────────────────────────────────
+async function toolPolicyFeed(input: PolicyToolInput) {
+  let snap;
+  try { snap = await getPolicySnapshot(); }
+  catch (e) { return { available: false, error: (e as Error).message }; }
+  return summarisePolicy(snap, input, Date.now());
+}
+
+// ────────────────────────────────────────────────────────────
 // Dispatcher
 // ────────────────────────────────────────────────────────────
 export async function runCopilotTool(name: string, input: Record<string, unknown>): Promise<unknown> {
@@ -625,6 +653,7 @@ export async function runCopilotTool(name: string, input: Record<string, unknown
     case "get_scalper_snapshot": return toolScalperSnapshot();
     case "get_cot_positioning": return toolCotPositioning(input);
     case "get_macro_snapshot": return toolMacroSnapshot(input);
+    case "get_policy_feed": return toolPolicyFeed(input as PolicyToolInput);
     case "get_market_lean": return toolMarketLean(input as { instrument?: string });
     case "get_track_record_stats": return toolTrackRecordStats(input);
     case "get_trade_plans": return toolTradePlans();
