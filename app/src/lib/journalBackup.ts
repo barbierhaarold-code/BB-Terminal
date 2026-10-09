@@ -9,10 +9,13 @@
 
 import { computeStats, type Setup, type Trade } from "@/lib/journal";
 import { useJournal } from "@/store/journalStore";
+import { useTradePlans } from "@/store/tradePlanStore";
+import { PLAN_SCHEMA_VERSION, mergePlans, parsePlansBlob, type PlansBlob } from "@/lib/tradePlan";
 import pkg from "../../package.json";
 
 export const BACKUP_FORMAT = "abdel-khader-track-record";
-export const BACKUP_FORMAT_VERSION = 1;
+/** 2 = adds the optional `data.tradePlans` key. Files with formatVersion 1 (no plans) are still read exactly as before. */
+export const BACKUP_FORMAT_VERSION = 2;
 
 export interface BackupHeader {
   format: typeof BACKUP_FORMAT;
@@ -21,6 +24,8 @@ export interface BackupHeader {
   appVersion: string;
   tradeCount: number;
   totalNetPnl: number;
+  /** v2+, informational */
+  planCount?: number;
 }
 
 export interface BackupData {
@@ -28,6 +33,8 @@ export interface BackupData {
   setups: Setup[];
   baseCapital: number;
   pricesHidden: boolean;
+  /** Optional (v2+). Absent in old files, in which case import leaves the user's plans alone. */
+  tradePlans?: PlansBlob;
 }
 
 export interface BackupFile { header: BackupHeader; data: BackupData }
@@ -39,6 +46,7 @@ export function backupFileName(d = new Date()): string {
 
 export function buildBackup(): BackupFile {
   const { trades, setups, baseCapital, pricesHidden } = useJournal.getState();
+  const plans = useTradePlans.getState().plans;
   return {
     header: {
       format: BACKUP_FORMAT,
@@ -47,8 +55,9 @@ export function buildBackup(): BackupFile {
       appVersion: pkg.version,
       tradeCount: trades.length,
       totalNetPnl: computeStats(trades, baseCapital).netProfit,
+      planCount: plans.length,
     },
-    data: { trades, setups, baseCapital, pricesHidden },
+    data: { trades, setups, baseCapital, pricesHidden, tradePlans: { schemaVersion: PLAN_SCHEMA_VERSION, plans } },
   };
 }
 
@@ -106,7 +115,7 @@ export function parseBackup(text: string): ParseResult {
   }
   const h = json.header;
   if (h.format !== BACKUP_FORMAT) return { ok: false, error: `Not a Track Record backup (format is "${String(h.format)}").` };
-  if (!isNum(h.formatVersion) || h.formatVersion > BACKUP_FORMAT_VERSION) {
+  if (!isNum(h.formatVersion) || h.formatVersion < 1 || h.formatVersion > BACKUP_FORMAT_VERSION) {
     return { ok: false, error: `Unsupported backup version (${String(h.formatVersion)}); this app reads version ${BACKUP_FORMAT_VERSION}.` };
   }
   const d = json.data;
@@ -134,6 +143,13 @@ export function parseBackup(text: string): ParseResult {
     trades.push(r.trade!);
   }
 
+  let tradePlans: PlansBlob | undefined;
+  if (d.tradePlans !== undefined) {
+    const pr = parsePlansBlob(d.tradePlans);
+    if (!pr.ok) return { ok: false, error: pr.error };
+    tradePlans = pr.blob;
+  }
+
   const warnings: string[] = [];
   if (h.tradeCount !== trades.length) {
     warnings.push(`Header says ${String(h.tradeCount)} trades but the file contains ${trades.length}.`);
@@ -155,7 +171,7 @@ export function parseBackup(text: string): ParseResult {
         tradeCount: trades.length,
         totalNetPnl: net,
       },
-      data: { trades, setups, baseCapital: d.baseCapital as number, pricesHidden: d.pricesHidden },
+      data: { trades, setups, baseCapital: d.baseCapital as number, pricesHidden: d.pricesHidden, ...(tradePlans ? { tradePlans } : {}) },
     },
   };
 }
@@ -169,9 +185,14 @@ function signature(t: Trade): string {
   return [t.symbol, t.direction, t.size, t.entryPrice, t.exitPrice, t.result, t.entryAt].join("|");
 }
 
-export interface ApplyResult { mode: "replace" | "merge"; before: number; after: number; added: number; skipped: number }
+export interface ApplyResult {
+  mode: "replace" | "merge"; before: number; after: number; added: number; skipped: number;
+  /** undefined when the file carried no plans (the user's plans were left untouched) */
+  plans?: { before: number; after: number; added: number; skipped: number };
+}
 
-/** Replace: the store becomes exactly the file's content. */
+/** Replace: the journal store becomes exactly the file's content. Plans are replaced ONLY if the file contains
+ * a `tradePlans` key; a v1 file (no plans) leaves the user's plans untouched. */
 export function applyReplace(b: BackupFile): ApplyResult {
   const before = useJournal.getState().trades.length;
   useJournal.setState({
@@ -181,7 +202,13 @@ export function applyReplace(b: BackupFile): ApplyResult {
     pricesHidden: b.data.pricesHidden,
   });
   const after = useJournal.getState().trades.length;
-  return { mode: "replace", before, after, added: after, skipped: 0 };
+  let plans: ApplyResult["plans"];
+  if (b.data.tradePlans) {
+    const pb = useTradePlans.getState().plans.length;
+    useTradePlans.setState({ plans: b.data.tradePlans.plans, loadError: null });
+    plans = { before: pb, after: b.data.tradePlans.plans.length, added: b.data.tradePlans.plans.length, skipped: 0 };
+  }
+  return { mode: "replace", before, after, added: after, skipped: 0, plans };
 }
 
 /** Merge: adds trades not already present (same id or same fill signature)
@@ -190,7 +217,8 @@ export function applyReplace(b: BackupFile): ApplyResult {
  * file (e.g. two partial closes at the same price) are all kept.
  * Existing trades, base capital and settings are left untouched. Imported
  * setups are matched to existing ones by id, then by name; unmatched ones are
- * added, and trade setupIds are remapped accordingly. */
+ * added, and trade setupIds are remapped accordingly. Plans (if the file has any) are merged by id, with
+ * the same setup remap; existing plans are never removed or edited, and a file without plans changes nothing. */
 export function applyMerge(b: BackupFile): ApplyResult {
   const cur = useJournal.getState();
   const ids = new Set(cur.trades.map((t) => t.id));
@@ -212,5 +240,13 @@ export function applyMerge(b: BackupFile): ApplyResult {
   }
 
   useJournal.setState({ trades: [...cur.trades, ...added], setups });
-  return { mode: "merge", before: cur.trades.length, after: cur.trades.length + added.length, added: added.length, skipped };
+
+  let plans: ApplyResult["plans"];
+  if (b.data.tradePlans) {
+    const curPlans = useTradePlans.getState().plans;
+    const m = mergePlans(curPlans, b.data.tradePlans.plans, remap);
+    useTradePlans.setState({ plans: m.plans });
+    plans = { before: curPlans.length, after: m.plans.length, added: m.added, skipped: m.skipped };
+  }
+  return { mode: "merge", before: cur.trades.length, after: cur.trades.length + added.length, added: added.length, skipped, plans };
 }

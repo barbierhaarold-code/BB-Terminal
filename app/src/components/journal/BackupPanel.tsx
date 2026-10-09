@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useJournal } from "@/store/journalStore";
+import { useTradePlans } from "@/store/tradePlanStore";
 import { computeStats } from "@/lib/journal";
 import {
   downloadBackup, parseBackup, applyReplace, applyMerge,
@@ -18,6 +19,7 @@ const btn = "px-3 py-1.5 border text-[11px] uppercase tracking-wider font-bold b
  */
 export function BackupPanel() {
   const tradeCount = useJournal((s) => s.trades.length);
+  const planCount = useTradePlans((s) => s.plans.length);
   const fileRef = useRef<HTMLInputElement>(null);
   const [reading, setReading] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -26,7 +28,7 @@ export function BackupPanel() {
   function onExport() {
     try {
       const { fileName, tradeCount: n } = downloadBackup();
-      setNotice({ tone: "ok", text: `Exported ${n} trades → ${fileName}` });
+      setNotice({ tone: "ok", text: `Exported ${n} trades and ${planCount} plans → ${fileName}` });
     } catch (e) {
       setNotice({ tone: "error", text: `Export failed: ${(e as Error).message}` });
     }
@@ -53,11 +55,14 @@ export function BackupPanel() {
     if (!pending) return;
     try {
       const r: ApplyResult = mode === "replace" ? applyReplace(pending.backup) : applyMerge(pending.backup);
+      const planText = r.plans
+        ? ` Plans: ${r.plans.before} → ${r.plans.after}${mode === "merge" ? ` (${r.plans.added} added, ${r.plans.skipped} duplicates skipped)` : ""}.`
+        : " Plans untouched (file has none).";
       setNotice({
         tone: "ok",
-        text: mode === "replace"
+        text: (mode === "replace"
           ? `Replaced: ${r.before} → ${r.after} trades.`
-          : `Merged: ${r.before} → ${r.after} trades (${r.added} added, ${r.skipped} duplicates skipped).`,
+          : `Merged: ${r.before} → ${r.after} trades (${r.added} added, ${r.skipped} duplicates skipped).`) + planText,
       });
       setPending(null);
     } catch (e) {
@@ -71,7 +76,7 @@ export function BackupPanel() {
   return (
     <div className="flex flex-col gap-2 ml-auto items-end">
       <div className="flex gap-1">
-        <button onClick={onExport} disabled={tradeCount === 0} title={tradeCount === 0 ? "No trades to export yet" : "Download all Track Record data as JSON"} className={btn}>
+        <button onClick={onExport} disabled={tradeCount === 0 && planCount === 0} title={tradeCount === 0 && planCount === 0 ? "Nothing to export yet" : "Download all Track Record data as JSON"} className={btn}>
           Export JSON
         </button>
         <button onClick={() => fileRef.current?.click()} disabled={reading} className={btn}>
@@ -81,7 +86,7 @@ export function BackupPanel() {
           onChange={(e) => void onFile(e.target.files?.[0])} />
       </div>
 
-      {tradeCount === 0 && !notice && !pending && (
+      {tradeCount === 0 && planCount === 0 && !notice && !pending && (
         <div className="sub-header normal-case tracking-normal font-normal text-term-muted">No trades yet — nothing to export.</div>
       )}
 
@@ -97,7 +102,8 @@ export function BackupPanel() {
           <div className="p-3 flex flex-col gap-2 text-[11px]">
             <div className="text-term-text">
               This file contains <b className="num">{b.data.trades.length}</b> trades
-              (net P&L <b className="num">{net.toFixed(2)}</b>, {b.data.setups.length} setups).
+              (net P&L <b className="num">{net.toFixed(2)}</b>, {b.data.setups.length} setups
+              {b.data.tradePlans ? <>, <b className="num">{b.data.tradePlans.plans.length}</b> trade plans</> : ", no trade plans"}).
               Current data has <b className="num">{tradeCount}</b> trades.
             </div>
             <div className="text-term-muted">
@@ -105,8 +111,8 @@ export function BackupPanel() {
             </div>
             {pending.warnings.map((w) => <div key={w} className="text-term-red">⚠ {w}</div>)}
             <div className="text-term-muted">
-              <b>Replace</b> overwrites all current trades, setups and base capital with the file's.{" "}
-              <b>Merge</b> keeps current data and adds only trades not already present.
+              <b>Replace</b> overwrites all current trades, setups and base capital with the file's (trade plans too, but only if the file contains plans).{" "}
+              <b>Merge</b> keeps current data and adds only trades and plans not already present.
             </div>
             <div className="flex gap-1">
               <button onClick={() => confirm("replace")} className={cn(btn, "border-term-red text-term-red hover:border-term-red hover:text-term-red")}>Replace</button>

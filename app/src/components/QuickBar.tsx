@@ -18,7 +18,7 @@ const CATEGORIES: Category[] = [
   { label: "Crypto", codes: ["CRYPTO"] },
   { label: "News", codes: ["NI", "NH"] },
   { label: "Options", codes: ["OMON"] },
-  { label: "Journal", codes: ["TRACK"] },
+  { label: "Journal", codes: ["TRACK", "PLAN"] },
 ];
 const PINNED: FunctionCode[] = ["CC", "HELP"];
 

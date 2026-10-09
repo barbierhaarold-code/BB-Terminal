@@ -75,6 +75,14 @@ const STEPS: Step[] = [
     open: { code: "TRACK", label: "Open Track Record" },
   },
   {
+    title: "Trade Plan (PLAN)",
+    body: [
+      "Write down a trade before you take it: thesis, setup, entry zone, stop, targets, planned risk and what you will watch. Afterwards, link the plan to the trade you actually took and note whether you followed it.",
+      "Plans are stored in this browser, separately from your trades, and are included in the Track Record JSON backup. Adherence figures always show their sample size and are descriptive, not conclusions.",
+    ],
+    open: { code: "PLAN", label: "Open Trade Plan" },
+  },
+  {
     title: "Portfolio (PORTFOLIO)",
     body: ["Track open positions with live profit and loss, sector allocation, performance versus the S&P 500 and risk statistics. Positions you enter are stored in this browser."],
     open: { code: "PORTFOLIO", label: "Open Portfolio" },

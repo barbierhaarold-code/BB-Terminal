@@ -39,6 +39,7 @@ import { INVEST } from "@/functions/INVEST";
 import { QUANT } from "@/functions/QUANT";
 import { COT } from "@/functions/COT";
 import { LEAN } from "@/functions/LEAN";
+import { PLAN } from "@/functions/PLAN";
 import { PORTFOLIO } from "@/functions/PORTFOLIO";
 import { MAP } from "@/functions/MAP";
 import { Tutorial } from "@/components/Tutorial";
@@ -73,6 +74,7 @@ const SCREENS: Record<string, (symbol?: string) => JSX.Element> = {
   LEAN: () => <LEAN />,
   PORTFOLIO: () => <PORTFOLIO />,
   MAP: () => <MAP />,
+  PLAN: () => <PLAN />,
 };
 
 // Which Copilot `current_view` label a given active tab corresponds to —
