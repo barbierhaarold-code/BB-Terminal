@@ -1,6 +1,7 @@
 -- Schema behaviour checks (idempotent import, constraints, ownership). NOT RUN
--- on Supabase. Replace the uuid with ONE existing user id; runs in a transaction
--- that is rolled back.
+-- on Supabase. Replace the uuid with ONE existing user id that owns NO rows yet
+-- (use the second test user, not your real account: the 'no settings row' check
+-- expects a fresh account). Runs in a transaction that is rolled back.
 begin;
 do $$
 declare

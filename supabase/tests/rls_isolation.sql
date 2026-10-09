@@ -2,7 +2,8 @@
 -- RLS isolation check. NOT RUN. To be executed by the project owner in the
 -- Supabase SQL editor, AFTER the migration, with two EXISTING user ids
 -- (Authentication → Users; the owner creates / signs in the accounts, nothing
--- here creates or touches an account).
+-- here creates or touches an account). Safe to run when both users already own
+-- real data: it only counts/touches rows owned by A, and rolls back.
 --
 -- Everything runs inside one transaction that is ROLLED BACK at the end, so no
 -- row is kept. Replace the two uuids below, run the whole script, and read the
@@ -28,16 +29,16 @@ begin
 
   -- act as user B
   perform set_config('request.jwt.claims', json_build_object('sub', b, 'role', 'authenticated')::text, true);
-  select count(*) into n from public.trades;
+  select count(*) into n from public.trades where user_id = a;
   raise notice '% B selects A trades (expect 0): %', case when n = 0 then 'PASS' else 'FAIL' end, n;
-  select count(*) into n from public.trade_plans;
+  select count(*) into n from public.trade_plans where user_id = a;
   raise notice '% B selects A plans (expect 0): %', case when n = 0 then 'PASS' else 'FAIL' end, n;
 
-  update public.trades set result = 999 where id = 'rls-test-a';
+  update public.trades set result = 999 where user_id = a;
   get diagnostics n = row_count;
   raise notice '% B updates A trade (expect 0 rows): %', case when n = 0 then 'PASS' else 'FAIL' end, n;
 
-  delete from public.trades where id = 'rls-test-a';
+  delete from public.trades where user_id = a;
   get diagnostics n = row_count;
   raise notice '% B deletes A trade (expect 0 rows): %', case when n = 0 then 'PASS' else 'FAIL' end, n;
 

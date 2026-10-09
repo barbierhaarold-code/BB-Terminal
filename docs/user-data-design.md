@@ -1,6 +1,6 @@
 # Per-user server storage for Track Record and Trade Plans — design
 
-Status: **Phase 1 design only. No application code written, nothing applied to Supabase, nothing pushed.**
+Status: **Phase 2 implemented on `feature/user-data-foundation` (local branch, not pushed, not merged). Nothing has been applied to Supabase.** Section 0.5 records the approved decisions and what differs from the Phase 1 text below; where they conflict, section 0.5 wins.
 Branch: `feature/user-data-foundation` (local). Companion files:
 `supabase/migrations/20261009000000_user_data_foundation.sql` (not applied) and
 `supabase/tests/rls_isolation.sql` (not run).
@@ -11,6 +11,26 @@ Branch: `feature/user-data-foundation` (local). Companion files:
 2. Local data is **never auto-attached** to whichever account signs in. Server-mode stores never persist to `localStorage`.
 3. No `service_role` key anywhere. The client uses the publishable key plus the signed-in user's JWT (supabase-js already does this for auth, `app/src/lib/supabase.ts`).
 4. No new dependency: `@supabase/supabase-js` (already in `app/package.json`) speaks to PostgREST.
+
+## 0.5 Approved decisions and as-built differences
+
+| # | Decision | As built |
+|---|---|---|
+| 1 | `setups` table | added |
+| 2 | timestamps as verbatim text | `entry_at/exit_at/created_at/updated_at` are `text` |
+| 3 | new accounts have **no** base capital | `user_settings.base_capital` is nullable, no default; no row until set. Stores hold `baseCapital: null`; `computeStats(trades, null)` sets `hasCapital=false`; Track Record shows **n/a** (return, Calmar, drawdown %, avg win/loss %, risk/deposit load) with a visible reason; plan "planned risk USD" shows n/a; Copilot returns `null` + a note, never `0`. Backup files may carry `"baseCapital": null` (still rejects ≤ 0). |
+| 4 | `pricesHidden` per device | not in the DB (column removed from the migration). In server mode it lives in its own key `bbterminal-prices-hidden`; in local mode it stays in the journal blob exactly as before. |
+| 5 | sign-out reset | `lib/userData/session.ts`: any change of the signed-in user (sign-out, sign-in, switch, expiry) empties both stores **synchronously** first, drops queued writes and any in-flight load, then loads the new user. Tests record every state both stores ever take. In **local** mode nothing is reset (resetting would write an empty journal to localStorage); local mode keeps its pre-existing "device data" semantics. |
+| 6 | Replace disabled for server accounts | `applyImport(…, "replace")` throws; the Replace button is hidden; `applyReplace`/`applyMerge` (the `setState` paths) throw in server mode so they cannot "succeed" without persisting. |
+| 7 | validated on throwaway Postgres | see "Validation" below |
+| 8 | Portfolio out of scope | Portfolio screen now states that positions are stored in this browser only. |
+
+Other deviations from the Phase 1 text: there is **no `localAdapter`**: local mode is the unchanged `persist` path (the stores branch on the backend flag), which is the only way to guarantee byte-identical local storage. Server mode adds `lib/userData/sync.ts` (ordered write queue; one failure rolls back that write and everything queued after it, then shows the banner with Retry). The "Import my local journal" button copies the local base capital to the account only if the user ticks the box and the account has none; Backup → Merge offers the same checkbox and otherwise never touches settings.
+
+**Production flag.** The backend is chosen by the build-time variable `VITE_USER_DATA_BACKEND` (`local` default, `server`). `docker/gateway/Dockerfile` only forwards `VITE_SUPABASE_*` build args, so enabling `server` in the production image needs one added `ARG`/`ENV` line there (and the compose pass-through). That file was deliberately not touched in this branch.
+
+### Validation (throwaway Docker Postgres 15 + PostgREST; never Supabase)
+Validated: the migration runs on an empty database and re-runs cleanly (idempotent); RLS isolation (select/insert/update/delete/cannot reassign `user_id`, same app id for two users, anon has no privilege) both in SQL (`supabase/tests/rls_isolation.sql`, `schema_checks.sql`) and **over HTTP through PostgREST with real JWTs** using the actual `supabaseAdapter` (`supabaseAdapter.integration.test.ts`: idempotent import of a 67-trade fixture, canonical-hash round trip, 0-row updates are errors, a second user cannot read/modify, 2 500-row pagination); a negative control (RLS disabled) makes the isolation test fail. Not validated (Supabase-specific): the real `auth.users`/`auth.uid()` implementation (stubbed from `request.jwt.claims`), GoTrue-issued JWTs and refresh, Supabase's default grants/`supabase_admin` ownership, the Supabase API gateway/Kong and its PostgREST version and config (`db-max-rows` etc.), SQL-editor transaction behaviour, and project-level settings (disable_signup, redirect URLs). Hence the live two-account test in the report.
 
 ## 1. Inventory — everything that reads or writes the journal / plans
 
@@ -56,7 +76,7 @@ Exact SQL: `supabase/migrations/20261009000000_user_data_foundation.sql`. Summar
 | `trades` | PK `(user_id, id)` | `id`, `symbol`, `direction`, `size`, `entryPrice→entry_price`, `exitPrice→exit_price`, `result`, `entryAt→entry_at`, `exitAt→exit_at`, `setupId→setup_id`, `macroBias`, `conviction`, `newsEvent`, `feeling`, `notes`, `source`, `createdAt→created_at`; plus `seq` (insertion order), `extra jsonb`, `schema_version`, `row_created_at`, `row_updated_at` |
 | `trade_plans` | PK `(user_id, id)` | `id`, `title`, `symbol`, `direction`, `thesisMacro`, `thesisTechnical`, `setupId`, `timeframe`, `entryLow/High`, `stop`, `targets` (jsonb array), `riskPct`, `catalysts`, `conviction`, `status`, `createdAt`, `updatedAt`, `context` (jsonb, opaque), `review.tradeId→review_trade_id`, `review.followed→review_followed`, `review.lesson→review_lesson`; plus `seq`, `extra`, `schema_version` (= `PLAN_SCHEMA_VERSION`), `row_*` |
 | `setups` | PK `(user_id, id)` | `id`, `name`, `schema_version`, `row_*` |
-| `user_settings` | PK `user_id` | `base_capital`, `prices_hidden`, `schema_version`, `row_*` |
+| `user_settings` | PK `user_id` | `base_capital` (nullable), `schema_version`, `row_*` (`pricesHidden` is device-local) |
 
 Decisions and why:
 - **`setups` is a fourth table** (not in your list). Trades and plans reference `setupId`; without it a server journal loses its tags. Alternative: a jsonb column in `user_settings`. A table keeps rename/delete simple. Open question 3.
