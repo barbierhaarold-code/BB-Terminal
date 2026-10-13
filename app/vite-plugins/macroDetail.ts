@@ -22,6 +22,10 @@ const DETAIL_TTL_MS = 6 * 60 * 60_000;
 const SHARED_TTL_MS = 24 * 60 * 60_000;
 const RELEASE_TTL_MS = 12 * 60 * 60_000;
 const FAILURE_COOLDOWN_MS = 30_000;
+/** A detail answer never waits longer than this for the shared market data (the gold history alone can take ~20 s cold). */
+const SHARED_WAIT_MS = 4_000;
+/** An answer built before the shared data were ready is kept only this long, so a reopen gets the measurement. */
+const PARTIAL_TTL_MS = 20_000;
 const REACTION_FROM = "2010-01-01";
 const VINTAGE_FROM = "2008-01-01";
 const OPENBB = (process.env.OPENBB_URL?.replace(/\/+$/, "") || "http://127.0.0.1:6900");
@@ -143,20 +147,22 @@ export function createDetailService(o: {
     releaseIds.set(code, { value: v, expires: t + 7 * SHARED_TTL_MS });
     return v;
   }
-  /** Upcoming dates of EVERY FRED release in ≤ 3 requests (FRED pages at 1,000 rows), cached 12 h; replaces one request per release. */
+  /**
+   * Upcoming dates of every FRED release from ONE request (cached 12 h), replacing one request per release. Rows come sorted
+   * by date, so a release present on this single page has its true NEXT date even when the page is full. FRED's offset
+   * paging for this endpoint did not answer when tested (2026-10-13), so it is not used: a release absent from the page
+   * falls back to its own request (datesOf).
+   */
   let allDates: Cached<Map<number, string[]>> | null = null;
   let allDatesInflight: Promise<Map<number, string[]>> | null = null;
   async function upcoming(t: number): Promise<Map<number, string[]>> {
     if (allDates && allDates.expires > t) return allDates.value;
     if (allDatesInflight) return allDatesInflight;
     allDatesInflight = (async () => {
-      const today = new Date(t).toISOString().slice(0, 10), until = new Date(t + 75 * 86_400_000).toISOString().slice(0, 10);
+      const today = new Date(t).toISOString().slice(0, 10), until = new Date(t + 60 * 86_400_000).toISOString().slice(0, 10);
+      const j = await fredGet<{ release_dates?: Array<{ release_id: number; date: string }> }>(`releases/dates?realtime_start=${today}&realtime_end=${until}&include_release_dates_with_no_data=true&limit=1000&order_by=release_date&sort_order=asc`, key!);
       const m = new Map<number, string[]>();
-      for (let offset = 0; offset < 3000; offset += 1000) {
-        const j = await fredGet<{ release_dates?: Array<{ release_id: number; date: string }>; count?: number }>(`releases/dates?realtime_start=${today}&realtime_end=${until}&include_release_dates_with_no_data=true&limit=1000&offset=${offset}&order_by=release_date&sort_order=asc`, key!);
-        for (const r of j.release_dates ?? []) if (r.date >= today) m.set(r.release_id, [...(m.get(r.release_id) ?? []), r.date]);
-        if ((j.release_dates?.length ?? 0) < 1000) break;
-      }
+      for (const r of j.release_dates ?? []) if (r.date >= today) m.set(r.release_id, [...(m.get(r.release_id) ?? []), r.date]);
       allDates = { value: m, expires: t + RELEASE_TTL_MS };
       return m;
     })().finally(() => { allDatesInflight = null; });
@@ -174,8 +180,9 @@ export function createDetailService(o: {
     return v;
   }
 
-  async function build(def: SeriesDef, t: number): Promise<MacroDetail> {
+  async function build(def: SeriesDef, t: number): Promise<MacroDetail & { partial?: boolean }> {
     const warnings: string[] = [];
+    let partial = false;
     const base: MacroDetail = {
       id: def.id, fetchedAt: new Date(t).toISOString(), history: [], provider: def.provider, sourceUrl: "", refreshedAt: null, fredMeta: null, release: null,
       revisions: { available: false, reason: "" }, reaction: { available: false, reason: "" }, recessions: null, warnings,
@@ -191,7 +198,11 @@ export function createDetailService(o: {
     metaP?.catch(() => undefined);
     const releaseP = isFred && def.economy === "US" ? releaseOf(def.code, t) : null;
     releaseP?.catch(() => undefined);
-    const sharedP = def.economy === "US" ? sharedData(t) : null;
+    const sharedP = def.economy === "US" ? sharedData(t).catch(() => undefined) : null;
+    let readyP: Promise<boolean> | null = null; // one bounded wait per build, however many sections need the shared data
+    const sharedReady = () => (readyP ??= sharedP
+      ? Promise.race([sharedP.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), SHARED_WAIT_MS))])
+      : Promise.resolve(true));
 
     // ── history ──
     if (isFred) {
@@ -269,8 +280,10 @@ export function createDetailService(o: {
         : "No release-day reaction is measured for this series (it is not a scheduled headline release with first-print vintages in ALFRED)." };
     } else if (!vintages) {
       base.reaction = { available: false, reason: "Omitted: first-release dates need ALFRED vintages, which are not available for this series right now." };
+    } else if (!(await sharedReady())) {
+      partial = true;
+      base.reaction = { available: false, reason: "The market series used for this measurement are still loading on the server (first use after a restart; the gold history alone takes about 15–20 seconds). Reload this panel in a moment." };
     } else {
-      await sharedP;
       const list = assets?.value.list ?? [];
       const rel = firstReleases(vintages, def.transform, def.frequency, 2 * def.lag.days);
       if (!list.length) base.reaction = { available: false, reason: `Omitted: no market series could be loaded (${assets?.value.missing.join("; ") || "unknown cause"}).` };
@@ -289,8 +302,8 @@ export function createDetailService(o: {
         };
       }
     }
-    if (sharedP) { await sharedP; base.recessions = usrec?.value ?? null; }
-    return base;
+    if (sharedP) { if (!(await sharedReady())) partial = true; base.recessions = usrec?.value ?? null; }
+    return partial ? { ...base, partial } : base;
   }
 
   return {
@@ -314,7 +327,7 @@ export function createDetailService(o: {
       if (f && f.until > t) throw new Error(f.message);
       let p = inflight.get(id);
       if (!p) {
-        p = build(def, t).then((d) => { cache.set(id, { value: d, expires: t + DETAIL_TTL_MS }); failures.delete(id); return d; })
+        p = build(def, t).then(({ partial, ...d }) => { cache.set(id, { value: d, expires: t + (partial ? PARTIAL_TTL_MS : DETAIL_TTL_MS) }); failures.delete(id); return d; })
           .catch((e) => { failures.set(id, { message: clean(e), until: t + FAILURE_COOLDOWN_MS }); throw new Error(clean(e)); })
           .finally(() => inflight.delete(id));
         inflight.set(id, p);

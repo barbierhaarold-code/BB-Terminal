@@ -160,3 +160,25 @@ describe("US release calendar budget", () => {
     expect(calls.filter((u) => u.includes("/fred/release/dates")).length).toBe(rows.length - 2);
   });
 });
+
+describe("detail never waits long for the shared market data", () => {
+  it("answers within the bound with an honest 'still loading' reaction, and that answer is not kept for hours", async () => {
+    let now = NOW;
+    mockFetch((url) => {
+      if (url.includes("/fred/series/observations") && url.includes("realtime_start=1776-07-04")) return reply({ observations: [
+        { date: "2026-08-01", value: "1233", realtime_start: "2026-09-04", realtime_end: "9999-12-31" }, { date: "2026-09-01", value: "1262", realtime_start: "2026-10-02", realtime_end: "9999-12-31" }] });
+      if (url.includes("/fred/series/observations")) return reply({ observations: [{ date: "2026-09-01", value: "1262", realtime_start: "2026-10-02", realtime_end: "9999-12-31" }] });
+      return reply({});
+    });
+    const slowGold = () => new Promise<never>(() => { /* never answers */ });
+    const svc = createDetailService({ defs: ALL_BY_ID, adapters: new Map(), fredKey: KEY, now: () => now, goldFetcher: slowGold });
+    const t0 = Date.now();
+    const d = (await svc.get("us.payrolls")).detail;
+    expect(Date.now() - t0).toBeLessThan(6000);
+    expect(d.reaction).toMatchObject({ available: false, reason: expect.stringMatching(/still loading/) });
+    expect("partial" in d).toBe(false);
+    expect((await svc.get("us.payrolls")).cacheState).toBe("HIT");
+    now += 25_000; // past the short partial TTL: rebuilt rather than served for 6 h
+    expect((await svc.get("us.payrolls")).cacheState).toBe("MISS");
+  }, 15000);
+});
