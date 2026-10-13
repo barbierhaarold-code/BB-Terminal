@@ -133,7 +133,7 @@ describe("outage-simulation switch is dev-only", () => {
 
 // ───────────── several adapters behind one snapshot ─────────────
 
-function namedAdapter(id: "dbnomics" | "bls", behaviour: (defs: SeriesDef[]) => Promise<AdapterSeries[]> | AdapterSeries[], cacheMs?: number) {
+function namedAdapter(id: "dbnomics" | "fred", behaviour: (defs: SeriesDef[]) => Promise<AdapterSeries[]> | AdapterSeries[], cacheMs?: number) {
   const calls = { n: 0 };
   const adapter: MacroAdapter = { id, cacheMs, async fetchSeries(defs) { calls.n++; return behaviour(defs); } };
   return { adapter, calls };
@@ -145,8 +145,8 @@ describe("macro-proxy with several adapters", () => {
   it("one failing provider does not take the page down: its series carry the real cause, the rest are served", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const dbn = namedAdapter("dbnomics", allOk);
-    const bls = namedAdapter("bls", () => { throw new Error("BLS answered HTTP 500 Internal Server Error."); });
-    const s = await mount("dev", false, [dbn.adapter, bls.adapter]);
+    const fred = namedAdapter("fred", () => { throw new Error("FRED answered HTTP 500 Internal Server Error."); });
+    const s = await mount("dev", false, [dbn.adapter, fred.adapter]);
     const r = await s.get();
     expect(r.status).toBe(200);
     const us = r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi");
@@ -158,8 +158,8 @@ describe("macro-proxy with several adapters", () => {
 
   it("a missing key flows through as an explicit per-series state with its kind (never a silent gap)", async () => {
     const dbn = namedAdapter("dbnomics", allOk);
-    const bls = namedAdapter("bls", (defs) => defs.map((d): AdapterSeries => ({ ...okSeries(d.id), ok: false, observations: [], errorKind: "key_missing", error: "API key missing: BLS_API_KEY is not set." })));
-    const s = await mount("dev", false, [dbn.adapter, bls.adapter]);
+    const fred = namedAdapter("fred", (defs) => defs.map((d): AdapterSeries => ({ ...okSeries(d.id), ok: false, observations: [], errorKind: "key_missing", error: "API key missing: FRED_API_KEY is not set." })));
+    const s = await mount("dev", false, [dbn.adapter, fred.adapter]);
     const r = await s.get();
     expect(r.status).toBe(200);
     expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.unemp")).toMatchObject({ ok: false, errorKind: "key_missing" });
@@ -167,8 +167,8 @@ describe("macro-proxy with several adapters", () => {
 
   it("a key that an upstream error echoes back is scrubbed from the 502 the browser receives", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const bls = namedAdapter("bls", () => { throw new Error(`The key:${SECRET} provided by the User is invalid.`); });
-    const s = await mount("dev", false, bls.adapter, { BLS_API_KEY: SECRET });
+    const fred = namedAdapter("fred", () => { throw new Error(`The key:${SECRET} provided by the User is invalid.`); });
+    const s = await mount("dev", false, fred.adapter, { FRED_API_KEY: SECRET });
     const r = await s.get();
     expect(r.status).toBe(502);
     expect(JSON.stringify(r.body)).not.toContain(SECRET);
@@ -180,22 +180,22 @@ describe("macro-proxy with several adapters", () => {
     try {
       vi.setSystemTime(new Date("2026-10-09T08:00:00Z"));
       const dbn = namedAdapter("dbnomics", allOk, 6 * 3_600_000);
-      const bls = namedAdapter("bls", allOk, 12 * 3_600_000);
-      const s = await mount("dev", false, [dbn.adapter, bls.adapter]);
+      const fred = namedAdapter("fred", allOk, 12 * 3_600_000);
+      const s = await mount("dev", false, [dbn.adapter, fred.adapter]);
       await s.get();
-      expect([dbn.calls.n, bls.calls.n]).toEqual([1, 1]);
+      expect([dbn.calls.n, fred.calls.n]).toEqual([1, 1]);
       vi.setSystemTime(new Date("2026-10-09T08:05:00Z"));
       expect((await s.get()).headers.get("x-bbterminal-cache")).toBe("HIT");
       vi.setSystemTime(new Date("2026-10-09T08:11:00Z"));
       const rebuilt = await s.get();
-      expect([dbn.calls.n, bls.calls.n]).toEqual([1, 1]);
+      expect([dbn.calls.n, fred.calls.n]).toEqual([1, 1]);
       expect(rebuilt.headers.get("x-bbterminal-cache")).toBe("HIT"); // rebuilt from adapter caches: nothing went upstream
       vi.setSystemTime(new Date("2026-10-09T14:30:00Z"));
       await s.get();
-      expect([dbn.calls.n, bls.calls.n]).toEqual([2, 1]);
+      expect([dbn.calls.n, fred.calls.n]).toEqual([2, 1]);
       vi.setSystemTime(new Date("2026-10-09T20:30:00Z"));
       await s.get();
-      expect([dbn.calls.n, bls.calls.n]).toEqual([3, 2]);
+      expect([dbn.calls.n, fred.calls.n]).toEqual([3, 2]);
     } finally { vi.useRealTimers(); }
   });
 
@@ -206,15 +206,15 @@ describe("macro-proxy with several adapters", () => {
       vi.setSystemTime(new Date("2026-10-09T08:00:00Z"));
       let fail = false;
       const dbn = namedAdapter("dbnomics", allOk, 1000);
-      const bls = namedAdapter("bls", (defs) => { if (fail) throw new Error("BLS unreachable (ECONNRESET)."); return allOk(defs); }, 1000);
-      const s = await mount("dev", false, [dbn.adapter, bls.adapter]);
+      const fred = namedAdapter("fred", (defs) => { if (fail) throw new Error("FRED unreachable (ECONNRESET)."); return allOk(defs); }, 1000);
+      const s = await mount("dev", false, [dbn.adapter, fred.adapter]);
       expect((await s.get()).status).toBe(200);
       fail = true;
       vi.setSystemTime(new Date("2026-10-09T09:00:00Z"));
       const r = await s.get();
       expect(r.status).toBe(200);
       expect(r.body.results.cacheState).toBe("STALE");
-      expect(r.body.results.warnings[0]).toMatch(/bls is unreachable \(BLS unreachable \(ECONNRESET\)\.\)/);
+      expect(r.body.results.warnings[0]).toMatch(/fred is unreachable \(FRED unreachable \(ECONNRESET\)\.\)/);
       expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi").ok).toBe(true); // the older data, still there
     } finally { vi.useRealTimers(); }
   });
@@ -223,6 +223,6 @@ describe("macro-proxy with several adapters", () => {
     const s = await mount("dev", false, namedAdapter("dbnomics", allOk).adapter);
     const r = await s.get();
     expect(r.body.results.series).toHaveLength(SERIES.length);
-    expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi").error).toMatch(/No adapter "bls" is mounted/);
+    expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi").error).toMatch(/No adapter "fred" is mounted/);
   });
 });

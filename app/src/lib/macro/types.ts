@@ -4,17 +4,17 @@
 // ────────────────────────────────────────────────────────────
 
 /** Which server-side adapter fetches a series. The UI and the maths never look at this. */
-export type AdapterId = "dbnomics" | "bls" | "fred" | "eurostat" | "statcan" | "boc" | "boe" | "snb" | "bis" | "jpstat" | "imf";
+export type AdapterId = "dbnomics" | "bls" | "fred" | "eurostat" | "statcan" | "boc" | "boe" | "snb" | "bis" | "jpstat" | "imf" | "fiscaldata" | "nyfedsce" | "mof";
 /** Why a series has no data, when that is more specific than "error". */
 export type ErrorKind = "error" | "key_missing" | "key_rejected" | "blocked";
 
 export type Economy = "US" | "EA" | "UK" | "JP" | "CA" | "AU" | "NZ" | "CH";
 export type Indicator = "policy_rate" | "cpi_yoy" | "core_cpi_yoy" | "unemployment" | "gdp_growth" | "yield_10y";
-export type Frequency = "daily" | "monthly" | "quarterly";
+export type Frequency = "daily" | "weekly" | "monthly" | "quarterly";
 
 /**
  * Canonical period keys, so every layer compares periods the same way:
- * daily "2026-10-07", monthly "2026-08", quarterly "2026-Q2".
+ * daily and weekly "2026-10-07" (weekly = the provider's week-ending or week-starting date), monthly "2026-08", quarterly "2026-Q2".
  */
 export type PeriodKey = string;
 
@@ -53,21 +53,35 @@ export interface LagRule {
   why: string;
 }
 
+/**
+ * How the headline value is derived from what the provider publishes. "none": shown as published.
+ * "yoy": % change versus the same period a year earlier. "mom": % change versus the previous period.
+ * "diff": difference versus the previous period, in the published unit (e.g. payroll gains).
+ * Anything other than "none" is labelled "computed".
+ */
+export type Headline = "none" | "yoy" | "mom" | "diff";
+/** Chart transformations offered in the detail view (all computed by the terminal except "level"). */
+export type ChartTransform = "level" | "mom" | "yoy" | "ann3m" | "diff";
+
+export type Topic = "inflation" | "labour" | "growth" | "money" | "rates" | "fiscal" | "surveys";
+
 export interface SeriesDef {
   id: string;
   economy: Economy;
-  indicator: Indicator;
+  /** the G8 overview cell this series fills; null for series outside the 6-indicator matrix (US deep coverage) */
+  indicator: Indicator | null;
   adapter: AdapterId;
   /** adapter-specific address; for DBnomics "PROVIDER/DATASET/SERIES", for BLS/FRED the series id, for Eurostat "dataset?filters" … (see each adapter) */
   code: string;
   frequency: Frequency;
   kind: SeriesKind;
-  /** "yoy": the provider publishes an index (or a level) and this terminal computes the year-on-year % change */
-  transform: "none" | "yoy";
+  /** headline derivation (see Headline). "yoy" on an index is the classic computed inflation rate. */
+  transform: Headline;
   label: string;
   /** what the number is, incl. basis (e.g. "q/q annualised") */
   basis: string;
-  unit: "%" ;
+  /** unit of the HEADLINE value (after `transform`): "%", "pp", "index", "k" (thousands), "persons", "usd_mn", "usd_bn", "usd_hr", "ratio" */
+  unit: Unit;
   decimals: number;
   provider: string;
   attribution: string;
@@ -75,7 +89,32 @@ export interface SeriesDef {
   /** shown directly next to the value (table, detail header) and repeated in the Copilot output */
   valueNote?: string;
   lag: LagRule;
+  // ── detail-view metadata (all optional; absence is shown as "not available" with a reason) ──
+  /** short display name used in the US deep tables and the detail header (defaults to the indicator name) */
+  name?: string;
+  topic?: Topic;
+  /** originating agency when the data reach us through a republisher (FRED, DBnomics, BIS…) */
+  agency?: string;
+  /** unit of the series as PUBLISHED (before `transform`), for the "level" chart */
+  sourceUnit?: Unit;
+  /** chart transformations that are meaningful for this series (default: level only) */
+  chart?: ChartTransform[];
+  /** key into EXPLAIN (static, reviewed text) */
+  explain?: string;
+  /** related series ids (any catalogue), clickable in the detail view */
+  related?: string[];
+  /** official release calendar, linked when no machine-readable next-release date is available */
+  calendar?: { url: string; label: string };
+  /** true: measure release-day market reactions from ALFRED first releases (FRED monthly/quarterly/weekly series only) */
+  reaction?: boolean;
+  /** false: do not query ALFRED vintages (market rates, computed spreads: never revised) */
+  vintages?: boolean;
 }
+
+export type Unit = "%" | "pp" | "index" | "k" | "persons" | "usd_mn" | "usd_bn" | "usd_hr" | "ratio" | "bp";
+
+/** A series that fills a G8 overview cell. */
+export type MatrixDef = SeriesDef & { indicator: Indicator };
 
 export type FreshState = "fresh" | "stale" | "hidden";
 
@@ -88,8 +127,8 @@ export interface Freshness {
   from: string;
 }
 
-export interface SeriesView {
-  def: SeriesDef;
+export interface SeriesView<D extends SeriesDef = MatrixDef> {
+  def: D;
   /** latest non-missing observation (after any computed transform) */
   latest: Observation | null;
   previous: Observation | null;

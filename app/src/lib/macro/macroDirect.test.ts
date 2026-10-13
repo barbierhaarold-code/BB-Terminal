@@ -4,11 +4,17 @@ import {
 } from "../../../vite-plugins/macroDirect";
 import { AdapterError, RateLimitedError } from "../../../vite-plugins/macroAdapters";
 import { SERIES_BY_ID } from "./config";
+import type { MatrixDef } from "./types";
 import { buildView, yoyFromIndex } from "./math";
 
 // Each fixture is shaped like the provider's real answer (captured 2026-10-09), trimmed.
 const NOW = Date.parse("2026-10-09T12:00:00Z");
-const def = (id: string) => SERIES_BY_ID[id];
+// The matrix reads US CPI and unemployment from FRED; the BLS adapter is still tested on the BLS series ids it would serve.
+const BLS_DEFS: Record<string, MatrixDef> = {
+  "us.cpi": { ...SERIES_BY_ID["us.cpi"], adapter: "bls", code: "CUUR0000SA0", transform: "yoy" },
+  "us.unemp": { ...SERIES_BY_ID["us.unemp"], adapter: "bls", code: "LNS14000000" },
+};
+const def = (id: string) => BLS_DEFS[id] ?? SERIES_BY_ID[id];
 const KEY = "k3y-secret-value-0123456789abcdef";
 
 const reply = (body: string | object, init: ResponseInit = {}) =>
@@ -98,6 +104,18 @@ describe("FRED adapter", () => {
     expect(r[0].observations).toEqual([{ period: "2026-Q1", value: 5.4 }, { period: "2026-Q2", value: 5.6 }]);
     expect(r[1].ok).toBe(false);
     expect(r[1].error).toMatch(/HTTP 400/);
+  });
+  it("keeps only the current vintage, dates the latest value by its realtime_start, and never puts the key in a value or message", async () => {
+    const calls = mockFetch(() => reply({ observations: [
+      { date: "2026-01-01", value: "5.3", realtime_start: "2025-09-05", realtime_end: "2026-05-17" },  // superseded vintage
+      { date: "2026-01-01", value: "5.4", realtime_start: "2026-05-18", realtime_end: "9999-12-31" },
+      { date: "2026-04-01", value: "5.6", realtime_start: "2026-08-17", realtime_end: "9999-12-31" },
+    ] }));
+    const [r] = await fredAdapter(KEY).fetchSeries([def("nz.unemp")], NOW);
+    expect(r.observations).toEqual([{ period: "2026-Q1", value: 5.4 }, { period: "2026-Q2", value: 5.6 }]);
+    expect(r.refreshedAt).toBe("2026-08-17T00:00:00.000Z");
+    expect(calls[0].url).toMatch(/realtime_start=\d{4}-\d{2}-\d{2}&realtime_end=9999-12-31/);
+    expect(JSON.stringify(r)).not.toContain(KEY);
   });
   it("a rejected key is reported without ever containing the key", async () => {
     mockFetch(() => reply({ error_code: 400, error_message: `Bad Request. The value for variable api_key is not registered: ${KEY}.` }, { status: 400 }));

@@ -490,7 +490,7 @@ function About() {
         So a figure marked "Aug 2026" is an August number, not today's; always read the observation period beside the value.
       </p>
       <p className="mb-1.5">
-        <b>Indicators.</b> <b>Policy rate</b>: the central bank's main interest rate (US shows interest on reserves, an administered rate; Australia's cash rate target changes only at meetings, so its date is the date the rate took effect).
+        <b>Indicators.</b> <b>Policy rate</b>: the central bank's main interest rate (the US row shows the upper limit of the FOMC's federal funds target range; Australia's cash rate target changes only at meetings, so its date is the date the rate took effect).
         <b> CPI inflation (YoY)</b>: change in consumer prices versus the same period a year earlier; where a provider publishes only the index or level (Japan, Canada, the United States, Swiss GDP), the year-on-year change is computed here and labelled "computed". Where the index is rounded to one decimal, a computed figure can differ from the statistics office's own year-on-year by about 0.1 percentage point.
         <b> Core CPI</b>: the same excluding the most volatile items (definitions differ by country: Japan excludes fresh food and energy, Australia uses the trimmed mean).
         <b> Unemployment rate</b>: share of the labour force without work and seeking it. <b>Real GDP growth</b>: change in inflation-adjusted output; the basis differs by country (US quarter-on-quarter annualised, UK quarter-on-quarter, Euro Area and Australia year-on-year) and the basis is shown on each row, so rows are not directly comparable.

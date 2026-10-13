@@ -1,4 +1,4 @@
-import type { Economy, Indicator, SeriesDef, GapRow, LagRule } from "./types";
+import type { Economy, Indicator, MatrixDef, SeriesDef, GapRow, LagRule } from "./types";
 
 // ────────────────────────────────────────────────────────────
 // THE one place series are defined. Adding a series = adding a row here (and,
@@ -45,26 +45,50 @@ const dbn = {
   unit: "%" as const,
 };
 const direct = <A extends Exclude<SeriesDef["adapter"], "dbnomics">>(adapter: A) => ({ adapter, unit: "%" as const });
+/** FRED citation in the form FRED asks for, naming the originating agency and the series id. */
+export const fredAttribution = (agency: string, id: string, computed?: string) =>
+  `Source: ${agency}, retrieved from FRED, Federal Reserve Bank of St. Louis (series ${id})${computed ? `. ${computed}` : ""}`;
+export const FRED_PD = "Public domain, citation requested (FRED copyright tag).";
+export const FRED_CR = "Copyrighted, citation required (FRED copyright tag); no restriction on reuse with citation.";
 const VIA = "via DBnomics";
 const NOT_AUDITED = "Licence not audited (non-commercial terminal); attribution kept.";
 /** Shown next to every value computed from a rounded index. */
 export const COMPUTED_ROUNDING_NOTE = "computed · may differ by ±0.1 pp from the official figure (index rounded to 0.1)";
 
-export const SERIES: SeriesDef[] = [
-  // ── United States ──
-  { ...dbn, id: "us.policy", economy: "US", indicator: "policy_rate", code: "FED/PRATES_PRATES_POLICY_RATES/RESBM_N.D", frequency: "daily", kind: "level", transform: "none",
-    label: "Interest on reserves (administered rate)", basis: "level, %", decimals: 2, provider: "Federal Reserve Board",
-    attribution: `Source: Board of Governors of the Federal Reserve System, ${VIA}`,
-    licenceNote: "Public domain (Federal Reserve Board website: may be copied and distributed without permission).", lag: DAILY },
-  { ...dbn, id: "us.y10", economy: "US", indicator: "yield_10y", code: "FED/H15/RIFLGFCY10_N.B", frequency: "daily", kind: "level", transform: "none",
-    label: "10-year Treasury constant maturity", basis: "level, %", decimals: 2, provider: "Federal Reserve Board",
-    attribution: `Source: Board of Governors of the Federal Reserve System (H.15), ${VIA}`,
-    licenceNote: "Public domain (Federal Reserve Board).", lag: DAILY },
-  { ...dbn, id: "us.gdp", economy: "US", indicator: "gdp_growth", code: "BEA/NIPA-T10101/A191RL-Q", frequency: "quarterly", kind: "level", transform: "none",
-    label: "Real GDP growth", basis: "q/q, annualised, %", decimals: 1, provider: "U.S. Bureau of Economic Analysis",
-    attribution: `Source: U.S. Bureau of Economic Analysis, ${VIA}`,
-    licenceNote: "Rests on the public-domain status of US federal works (17 U.S.C. §105), not on a BEA page that could be read.",
-    lag: { days: 125, basis: "observation", why: "advance estimate ~30 days after quarter end: up to ~125 days old before the next one" } },
+export const SERIES: MatrixDef[] = [
+  // ── United States (FRED; every row names the originating agency and the FRED series id) ──
+  { ...direct("fred"), id: "us.policy", economy: "US", indicator: "policy_rate", code: "DFEDTARU", frequency: "daily", kind: "level", transform: "none",
+    label: "Federal funds target range, upper limit", basis: "level, % (FOMC target range; lower limit in the detail view)", decimals: 2, provider: "Federal Reserve Board, via FRED",
+    agency: "Board of Governors of the Federal Reserve System", attribution: fredAttribution("Board of Governors of the Federal Reserve System (FOMC press release)", "DFEDTARU"),
+    licenceNote: FRED_PD, valueNote: "upper limit of the target range", lag: DAILY, topic: "rates", vintages: false,
+    explain: "us.fedfunds_target", related: ["us.fftl", "us.effr", "us.iorb", "us.sofr", "us.y2"] },
+  { ...direct("fred"), id: "us.y10", economy: "US", indicator: "yield_10y", code: "DGS10", frequency: "daily", kind: "level", transform: "none",
+    label: "10-year Treasury constant maturity", basis: "level, %", decimals: 2, provider: "Federal Reserve Board (H.15), via FRED",
+    agency: "Board of Governors of the Federal Reserve System", attribution: fredAttribution("Board of Governors of the Federal Reserve System (H.15)", "DGS10"),
+    licenceNote: FRED_PD, lag: DAILY, topic: "rates", vintages: false, chart: ["level", "diff"],
+    explain: "us.treasury", related: ["us.y2", "us.y5", "us.y30", "us.tips10", "us.tp10", "us.s2s10", "us.be10"] },
+  { ...direct("fred"), id: "us.gdp", economy: "US", indicator: "gdp_growth", code: "A191RL1Q225SBEA", frequency: "quarterly", kind: "level", transform: "none",
+    label: "Real GDP growth", basis: "q/q, seasonally adjusted annual rate, %", decimals: 1, provider: "U.S. Bureau of Economic Analysis, via FRED",
+    agency: "U.S. Bureau of Economic Analysis", attribution: fredAttribution("U.S. Bureau of Economic Analysis", "A191RL1Q225SBEA"),
+    licenceNote: FRED_PD, lag: { days: 125, basis: "observation", why: "advance estimate ~30 days after quarter end: up to ~125 days old before the next one" },
+    topic: "growth", reaction: true, explain: "us.gdp", related: ["us.gdp_pce", "us.gdp_inv", "us.gdp_nx", "us.gdp_gov", "us.gdpnow", "us.retail", "us.indpro"] },
+  { ...direct("fred"), id: "us.cpi", economy: "US", indicator: "cpi_yoy", code: "CPIAUCNS", frequency: "monthly", kind: "level", transform: "yoy",
+    label: "CPI-U, all items (not seasonally adjusted)", basis: "y/y, % (computed from the published index, 3 decimals)", decimals: 1, provider: "U.S. Bureau of Labor Statistics, via FRED",
+    agency: "U.S. Bureau of Labor Statistics", sourceUnit: "index", chart: ["yoy", "level"],
+    attribution: fredAttribution("U.S. Bureau of Labor Statistics", "CPIAUCNS", "Year-on-year change computed by this terminal; BLS has not endorsed or checked this calculation"),
+    licenceNote: FRED_PD, valueNote: "computed from the published index (3 decimals): should match the BLS 12-month change to the displayed decimal", lag: MONTHLY,
+    topic: "inflation", reaction: true, explain: "us.cpi", related: ["us.core", "us.cpi_sa", "us.pce", "us.ppi", "us.ahe", "us.be5", "us.policy"] },
+  { ...direct("fred"), id: "us.core", economy: "US", indicator: "core_cpi_yoy", code: "CPILFENS", frequency: "monthly", kind: "level", transform: "yoy",
+    label: "CPI-U, all items less food and energy (not seasonally adjusted)", basis: "y/y, % (computed from the published index, 3 decimals)", decimals: 1, provider: "U.S. Bureau of Labor Statistics, via FRED",
+    agency: "U.S. Bureau of Labor Statistics", sourceUnit: "index", chart: ["yoy", "level"],
+    attribution: fredAttribution("U.S. Bureau of Labor Statistics", "CPILFENS", "Year-on-year change computed by this terminal; BLS has not endorsed or checked this calculation"),
+    licenceNote: FRED_PD, valueNote: "computed from the published index (3 decimals): should match the BLS 12-month change to the displayed decimal", lag: MONTHLY,
+    topic: "inflation", reaction: true, explain: "us.core", related: ["us.cpi", "us.core_sa", "us.pcecore", "us.ppicore", "us.ahe", "us.policy"] },
+  { ...direct("fred"), id: "us.unemp", economy: "US", indicator: "unemployment", code: "UNRATE", frequency: "monthly", kind: "level", transform: "none",
+    label: "Unemployment rate, seasonally adjusted", basis: "level, %", decimals: 1, provider: "U.S. Bureau of Labor Statistics, via FRED",
+    agency: "U.S. Bureau of Labor Statistics", attribution: fredAttribution("U.S. Bureau of Labor Statistics (Current Population Survey)", "UNRATE"),
+    licenceNote: FRED_PD, lag: MONTHLY, topic: "labour", reaction: true, chart: ["level", "diff"],
+    explain: "us.unemp", related: ["us.u6", "us.payrolls", "us.lfpr", "us.claims", "us.jolts", "us.ahe"] },
 
   // ── Euro Area ──
   { ...dbn, id: "ea.policy", economy: "EA", indicator: "policy_rate", code: "ECB/FM/D.U2.EUR.4F.KR.DFR.LEV", frequency: "daily", kind: "level", transform: "none",
@@ -75,8 +99,8 @@ export const SERIES: SeriesDef[] = [
     label: "10-year euro-area government yield (AAA-rated curve, spot)", basis: "level, %", decimals: 2, provider: "European Central Bank",
     attribution: `Source: European Central Bank (euro area yield curve), ${VIA}`,
     licenceNote: "ESCB statistics: free reuse, commercial or not, source quoted.", lag: DAILY },
-  { ...dbn, id: "ea.gdp", economy: "EA", indicator: "gdp_growth", code: "ECB/MNA/Q.Y.I9.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.GY", frequency: "quarterly", kind: "level", transform: "none",
-    label: "Real GDP growth (euro area 20)", basis: "y/y, %", decimals: 2, provider: "European Central Bank",
+  { ...dbn, id: "ea.gdp", economy: "EA", indicator: "gdp_growth", code: "ECB/MNA/Q.Y.I10.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.GY", frequency: "quarterly", kind: "level", transform: "none",
+    label: "Real GDP growth (euro area 21, fixed composition as of 2026)", basis: "y/y, %", decimals: 2, provider: "European Central Bank",
     attribution: `Source: European Central Bank (national accounts), ${VIA}`,
     licenceNote: "ESCB statistics: free reuse, commercial or not, source quoted.",
     lag: { days: 160, basis: "observation", why: "flash ~45 days and full estimate ~65 days after quarter end: up to ~160 days old before the next one" } },
@@ -135,16 +159,6 @@ export const SERIES: SeriesDef[] = [
     licenceNote: "CC BY 4.0 plus RBA financial-data terms: no implied endorsement.", lag: DAILY },
 
   // ═════════ Direct primary-source series (no aggregator in between) ═════════
-
-  // ── United States: BLS Public Data API v2 (needs BLS_API_KEY) ──
-  { ...direct("bls"), id: "us.cpi", economy: "US", indicator: "cpi_yoy", code: "CUUR0000SA0", frequency: "monthly", kind: "level", transform: "yoy",
-    label: "CPI-U, all items (not seasonally adjusted)", basis: "y/y, % (computed from the published index, 3 decimals)", decimals: 1, provider: "U.S. Bureau of Labor Statistics",
-    attribution: "Source: U.S. Bureau of Labor Statistics (Public Data API). Year-on-year change computed by this terminal; BLS has not endorsed or checked this calculation",
-    licenceNote: "BLS states its website information is in the public domain unless annotated otherwise.", valueNote: "computed from the published index (3 decimals): should match the BLS 12-month change to the displayed decimal", lag: MONTHLY },
-  { ...direct("bls"), id: "us.unemp", economy: "US", indicator: "unemployment", code: "LNS14000000", frequency: "monthly", kind: "level", transform: "none",
-    label: "Unemployment rate, seasonally adjusted", basis: "level, %", decimals: 1, provider: "U.S. Bureau of Labor Statistics",
-    attribution: "Source: U.S. Bureau of Labor Statistics (Current Population Survey, Public Data API)",
-    licenceNote: "BLS states its website information is in the public domain unless annotated otherwise.", lag: MONTHLY },
 
   // ── Euro Area: Eurostat dissemination API ──
   { ...direct("eurostat"), id: "ea.cpi", economy: "EA", indicator: "cpi_yoy", code: "prc_hicp_minr?geo=EA&unit=RCH_A&coicop18=TOTAL", frequency: "monthly", kind: "level", transform: "none",
@@ -225,7 +239,7 @@ export const SERIES: SeriesDef[] = [
 ];
 
 
-export const SERIES_BY_ID: Record<string, SeriesDef> = Object.fromEntries(SERIES.map((s) => [s.id, s]));
+export const SERIES_BY_ID: Record<string, MatrixDef> = Object.fromEntries(SERIES.map((s) => [s.id, s]));
 
 // ───────────── Coverage gaps (checked against live queries on 2026-10-09) ─────────────
 
@@ -238,9 +252,7 @@ const OUT_OF_SCOPE = "Outside the cells covered in this step; no endpoint was ev
 
 /** Cells that have no series, with the reason. Cells with a series that is currently unavailable are reported by the page from the live error instead. */
 export const KNOWN_GAPS: Partial<Record<Economy, Partial<Record<Indicator, GapSpec>>>> = {
-  US: {
-    core_cpi_yoy: notPinned("BLS core CPI (CUUR0000SA0L1E) could be served by the same BLS adapter; not wired in this step."),
-  },
+  US: {},
   EA: {
     core_cpi_yoy: notPinned("Eurostat publishes core HICP (excluding energy, food, alcohol and tobacco) in the same dataset as headline HICP; not wired in this step."),
   },

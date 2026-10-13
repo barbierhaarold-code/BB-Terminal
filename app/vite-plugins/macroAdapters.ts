@@ -34,7 +34,7 @@ export const USER_AGENT = "AbdelKhaderTerminal/1.0 (personal market-data termina
 const API = "https://api.db.nomics.world/v22/series";
 const UPSTREAM_TIMEOUT_MS = 30_000;
 /** Enough history for the chart and for year-on-year (monthly/quarterly), without shipping 17k daily points per series. */
-const KEEP: Record<SeriesDef["frequency"], number> = { daily: 1300, monthly: 360, quarterly: 160 };
+const KEEP: Record<SeriesDef["frequency"], number> = { daily: 1300, weekly: 520, monthly: 360, quarterly: 160 };
 
 interface DbnDoc {
   provider_code: string; dataset_code: string; series_code: string;

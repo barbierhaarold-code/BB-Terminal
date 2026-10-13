@@ -1,7 +1,7 @@
 import { canonicalPeriod, periodStart } from "../src/lib/macro/math";
 import type { AdapterId, AdapterSeries, ErrorKind, Observation, SeriesDef } from "../src/lib/macro/types";
 import { AdapterError, RateLimitedError, USER_AGENT, type MacroAdapter } from "./macroAdapters";
-import { fetchWithTimeout } from "./shared";
+import { fetchWithTimeout, mapLimit } from "./shared";
 
 // ────────────────────────────────────────────────────────────
 // Direct, primary-source macro adapters. One adapter per provider, each returning the
@@ -24,7 +24,7 @@ import { fetchWithTimeout } from "./shared";
 // ────────────────────────────────────────────────────────────
 
 const TIMEOUT_MS = 30_000;
-const KEEP: Record<SeriesDef["frequency"], number> = { daily: 1300, monthly: 360, quarterly: 160 };
+export const KEEP: Record<SeriesDef["frequency"], number> = { daily: 1300, weekly: 520, monthly: 360, quarterly: 160 };
 const HALF_DAY = 12 * 60 * 60_000;
 const SIX_HOURS = 6 * 60 * 60_000;
 
@@ -188,28 +188,66 @@ export function blsAdapter(key?: string): MacroAdapter {
 }
 
 // ───────────── FRED (Federal Reserve Bank of St. Louis API, key) ─────────────
+//
+// Documented limit: 120 requests/minute per key. Every FRED request made by this terminal (snapshot, US deep
+// coverage, detail views, release dates, ALFRED vintages) goes through ONE shared budget of FRED_BUDGET_PER_MIN, so
+// a burst of clicks queues instead of tripping the limit. Requests run at most FRED_CONCURRENCY at a time.
+// "Source updated" for a FRED series is the realtime_start of its latest observation: the date FRED recorded that
+// value, i.e. the release (or revision) date. It costs no extra request.
 
-export function fredAdapter(key?: string): MacroAdapter {
+export const FRED_BUDGET_PER_MIN = 100;
+const RT_WINDOW_DAYS = 400;
+const FRED_CONCURRENCY = 6;
+const fredStamps: number[] = [];
+/** Waits until one more FRED request fits in the shared per-minute budget. */
+export async function fredSlot(now: () => number = Date.now, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))): Promise<void> {
+  for (;;) {
+    const t = now();
+    while (fredStamps.length && t - fredStamps[0] >= 60_000) fredStamps.shift();
+    if (fredStamps.length < FRED_BUDGET_PER_MIN) { fredStamps.push(t); return; }
+    await sleep(60_000 - (t - fredStamps[0]) + 25);
+  }
+}
+
+/** One FRED API call through the shared budget. Throws with a scrubbed, real cause. */
+export async function fredGet<T>(path: string, key: string): Promise<T> {
+  await fredSlot();
+  const sep = path.includes("?") ? "&" : "?";
+  const j = await httpJson<T & { error_code?: number; error_message?: string }>(`https://api.stlouisfed.org/fred/${path}${sep}api_key=${encodeURIComponent(key)}&file_type=json`, { label: "FRED", secrets: [key] });
+  if (j.error_message) throw new Error(`FRED: ${snippet(scrub(j.error_message, [key]))}`);
+  return j;
+}
+
+export interface FredOptions { /** years of history for snapshot use (detail views ask for the full history separately) */ years?: number }
+
+export function fredAdapter(key?: string, o: FredOptions = {}): MacroAdapter {
+  const years = o.years ?? 15;
   return {
     id: "fred", cacheMs: HALF_DAY,
     async fetchSeries(defs, nowMs) {
       if (!key?.trim()) return keyMissing(defs, nowMs, "FRED_API_KEY", "FRED");
-      const out: AdapterSeries[] = [];
-      for (const def of defs) {
+      const settled = await mapLimit(defs, FRED_CONCURRENCY, async (def) => {
         const sourceUrl = `https://fred.stlouisfed.org/series/${def.code}`;
         try {
-          const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${encodeURIComponent(def.code)}&api_key=${encodeURIComponent(key)}&file_type=json&observation_start=${yearsAgo(nowMs, 15)}-01-01`;
-          const j = await httpJson<{ observations?: Array<{ date: string; value: string }>; error_code?: number; error_message?: string }>(url, { label: "FRED", secrets: [key] });
-          if (j.error_message) throw new Error(`FRED: ${snippet(scrub(j.error_message, [key]))}`);
-          out.push(okSeries(def, toObservations(def, (j.observations ?? []).map((o) => [o.date, o.value]), nowMs), nowMs, { sourceUrl }, "FRED returned the series but it has no values."));
+          // A realtime window (vintages of the last ~400 days) makes each row's realtime_start the date FRED recorded that
+          // value, so the latest row dates the release. Only the current vintage (realtime_end 9999-12-31) supplies values.
+          const rtStart = new Date(nowMs - RT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+          const j = await fredGet<{ observations?: Array<{ date: string; value: string; realtime_start?: string; realtime_end?: string }> }>(`series/observations?series_id=${encodeURIComponent(def.code)}&observation_start=${yearsAgo(nowMs, years)}-01-01&realtime_start=${rtStart}&realtime_end=9999-12-31`, key);
+          const raw = (j.observations ?? []).filter((r) => !r.realtime_end || r.realtime_end === "9999-12-31");
+          const lastValid = [...raw].reverse().find((r) => r.value !== "." && r.value.trim() !== "");
+          // A latest value recorded before the window shows the window start; that is not a release date, so it is not shown.
+          const published = lastValid?.realtime_start && lastValid.realtime_start !== rtStart ? `${lastValid.realtime_start}T00:00:00.000Z` : null;
+          return okSeries(def, toObservations(def, raw.map((r) => [r.date, r.value]), nowMs), nowMs, { sourceUrl, refreshedAt: published }, "FRED returned the series but it has no values.");
         } catch (err) {
           if (err instanceof RateLimitedError) throw err;
           const m = scrub(String((err as Error).message), [key]);
           const rejected = /api[_ ]key/i.test(m) && /(not|invalid)/i.test(m);
-          out.push(failedSeries(def, nowMs, rejected ? `FRED rejected the API key (${snippet(m, 120)}). Check FRED_API_KEY in app/.env.` : m, rejected ? "key_rejected" : "error", sourceUrl));
+          return failedSeries(def, nowMs, rejected ? `FRED rejected the API key (${snippet(m, 120)}). Check FRED_API_KEY in app/.env.` : m, rejected ? "key_rejected" : "error", sourceUrl);
         }
-      }
-      return out;
+      });
+      const limited = settled.find((r) => r.status === "rejected" && r.reason instanceof RateLimitedError);
+      if (limited && limited.status === "rejected") throw limited.reason;
+      return settled.map((r, i) => (r.status === "fulfilled" ? r.value : failedSeries(defs[i], nowMs, String((r.reason as Error)?.message ?? r.reason))));
     },
   };
 }

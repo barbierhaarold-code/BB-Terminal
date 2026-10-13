@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   assessFreshness, buildView, buildViews, canonicalPeriod, changeOf, fmtChange, fmtValue, latestTwo, periodEnd, periodLabel,
-  realPolicyRate, yearBefore, yoyFromIndex,
+  realPolicyRate, yearBefore, yoyFromIndex, periodChange, periodBefore, applyHeadline,
 } from "./math";
 import { SERIES, SERIES_BY_ID, knownGap } from "./config";
-import type { AdapterSeries, Observation, SeriesDef } from "./types";
+import type { AdapterSeries, MatrixDef, Observation } from "./types";
 
 const ms = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
 const NOW = ms("2026-10-09");
@@ -12,7 +12,7 @@ const obs = (pairs: [string, number][]): Observation[] => pairs.map(([period, va
 const adapter = (id: string, observations: Observation[], o: Partial<AdapterSeries> = {}): AdapterSeries => ({
   id, ok: true, observations, provider: "P", sourceUrl: "https://example.test", refreshedAt: "2026-10-08T00:00:00.000Z", retrievedAt: "2026-10-09T00:00:00.000Z", ...o,
 });
-const def = (id: string): SeriesDef => SERIES_BY_ID[id];
+const def = (id: string): MatrixDef => SERIES_BY_ID[id];
 
 describe("periods", () => {
   it("canonicalises each frequency and refuses what it cannot read", () => {
@@ -245,6 +245,48 @@ describe("config sanity", () => {
     expect(new Set(cells).size).toBe(cells.length);
   });
   it("the BEA series carries the required on-screen attribution", () => {
-    expect(SERIES_BY_ID["us.gdp"].attribution).toBe("Source: U.S. Bureau of Economic Analysis, via DBnomics");
+    expect(SERIES_BY_ID["us.gdp"].attribution).toBe("Source: U.S. Bureau of Economic Analysis, retrieved from FRED, Federal Reserve Bank of St. Louis (series A191RL1Q225SBEA)");
+  });
+});
+
+describe("headline derivations (weekly, m/m, diff)", () => {
+  it("periodChange uses the exact previous month and skips a gap instead of bridging it", () => {
+    const o = obs([["2026-05", 100], ["2026-06", 101], ["2026-08", 103]]);
+    expect(periodChange(o, "monthly", "diff")).toEqual([{ period: "2026-06", value: 1 }]);
+    expect(periodChange(o, "monthly", "mom")[0].value).toBeCloseTo(1, 10);
+  });
+  it("quarterly previous period wraps the year; weekly is 7 days earlier", () => {
+    expect(periodBefore("2026-Q1", "quarterly")).toBe("2025-Q4");
+    expect(periodBefore("2026-01", "monthly")).toBe("2025-12");
+    expect(periodBefore("2026-10-03", "weekly")).toBe("2026-09-26");
+  });
+  it("weekly year-on-year compares with the same weekday 52 weeks earlier", () => {
+    const y = applyHeadline(obs([["2025-10-04", 200], ["2026-10-03", 210]]), "yoy", "weekly");
+    expect(y).toHaveLength(1);
+    expect(y[0].value).toBeCloseTo(5, 10);
+  });
+  it("buildView labels any non-'none' headline as computed and payroll-style diffs come out in the published unit", () => {
+    const d = { ...def("us.unemp"), id: "x.payrolls", transform: "diff" as const };
+    const v = buildView(d, adapter("x.payrolls", obs([["2026-07", 159000], ["2026-08", 159120], ["2026-09", 159250]])), NOW);
+    expect(v.computed).toBe(true);
+    expect(v.latest).toEqual({ period: "2026-09", value: 130 });
+    expect(v.previous).toEqual({ period: "2026-08", value: 120 });
+  });
+});
+
+describe("inventory fixes (2026-10-13)", () => {
+  it("US policy rate is the FOMC target range (upper limit), not interest on reserves", () => {
+    expect(SERIES_BY_ID["us.policy"]).toMatchObject({ adapter: "fred", code: "DFEDTARU" });
+    expect(SERIES_BY_ID["us.policy"].label).toMatch(/target range/i);
+  });
+  it("Euro Area GDP uses the EA21 composition (I10); the EA20 key (I9) stopped at Q1 2026", () => {
+    expect(SERIES_BY_ID["ea.gdp"].code).toContain(".I10.");
+  });
+  it("every US matrix series names the originating agency and its FRED id in the attribution", () => {
+    for (const d of SERIES.filter((s) => s.economy === "US")) {
+      expect(d.adapter).toBe("fred");
+      expect(d.attribution).toContain(`(series ${d.code})`);
+      expect(d.agency).toBeTruthy();
+    }
   });
 });
