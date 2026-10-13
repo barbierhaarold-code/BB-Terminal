@@ -12,7 +12,7 @@ export function macroSummary(views: MacroViews, snap: MacroSnapshot, economy?: E
   const keep = (e: Economy) => !economy || e === economy;
   return {
     available: true as const,
-    source: `Direct provider APIs (BLS, Eurostat, Statistics Canada, Bank of Canada, Bank of England, Swiss National Bank, BIS, Statistics Bureau of Japan, IMF, FRED) and DBnomics (open aggregator; redistributes each provider's data as-is). Each series names its own provider. Retrieved ${snap.fetchedAt} (server cache ${snap.cacheState}).`,
+    source: `Direct provider APIs (FRED for every US series, citing the originating agency; Eurostat, Statistics Canada, Bank of Canada, Bank of England, Swiss National Bank, BIS, Statistics Bureau of Japan, IMF, FRED) and DBnomics (open aggregator; redistributes each provider's data as-is). Each series names its own provider. Retrieved ${snap.fetchedAt} (server cache ${snap.cacheState}).`,
     economies: (Object.keys(ECONOMY_NAME) as Economy[]).filter(keep).map((e) => ({
       economy: ECONOMY_NAME[e],
       series: views.shown.filter((v) => v.def.economy === e).map((v) => ({

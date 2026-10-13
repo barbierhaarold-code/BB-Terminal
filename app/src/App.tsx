@@ -10,6 +10,7 @@ import { useWorkspace } from "@/store/workspaceStore";
 import { useCopilot } from "@/store/copilotStore";
 import { useThemeMode } from "@/store/themeStore";
 import { FUNCTIONS, type FunctionCode } from "@/lib/functions";
+import { readMacroUrl } from "@/lib/macro/urlState";
 import type { CurrentView } from "@/lib/copilotConfig";
 
 import { CC } from "@/functions/CC";
@@ -106,6 +107,11 @@ export default function App() {
   useEffect(() => {
     setCurrentView(active ? VIEW_BY_CODE[active.code] ?? "other" : "other");
   }, [active, setCurrentView]);
+
+  // Deep link: a URL carrying ?macro=<indicator id> opens the Macro Hub, which then opens that indicator's detail view.
+  useEffect(() => {
+    if (readMacroUrl().id) useWorkspace.getState().openTab("MACRO");
+  }, []);
 
   // Keep <html data-theme> in sync with the persisted store (the inline script
   // in index.html handles the very first paint; this handles every toggle after).

@@ -1,4 +1,4 @@
-import type { Frequency, Observation, PeriodKey, Freshness, SeriesDef, RealRate, SeriesView, AdapterSeries, GapRow, Economy, Indicator, MacroSnapshot } from "./types";
+import type { Frequency, Observation, PeriodKey, Freshness, SeriesDef, MatrixDef, RealRate, SeriesView, AdapterSeries, GapRow, Economy, Indicator, MacroSnapshot, Headline } from "./types";
 import { SERIES, ECONOMIES, INDICATORS, ECONOMY_NAME as ECONOMY_NAME_SHORT, knownGap } from "./config";
 
 // ────────────────────────────────────────────────────────────
@@ -19,7 +19,7 @@ export function canonicalPeriod(raw: string, freq: Frequency): PeriodKey | null 
   if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/))) {
     const y = +m[1], mo = +m[2], d = +m[3];
     if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
-    if (freq === "daily") return s;
+    if (freq === "daily" || freq === "weekly") return s;
     if (freq === "monthly") return `${y}-${pad(mo)}`;
     return `${y}-Q${Math.ceil(mo / 3)}`; // quarterly given as a date (some RBA tables use the quarter-end date)
   }
@@ -69,9 +69,25 @@ export function dateLabel(iso: string | null | undefined): string {
 }
 
 /** The same period one year earlier, or null for a frequency that cannot do year-on-year here. */
-export function yearBefore(p: PeriodKey): PeriodKey | null {
+export function yearBefore(p: PeriodKey, freq?: Frequency): PeriodKey | null {
+  if (freq === "weekly") return shiftDays(p, -364); // 52 weeks: the same weekday a year earlier
   let m: RegExpMatchArray | null;
   if ((m = p.match(/^(\d{4})-(Q[1-4]|\d{2}(?:-\d{2})?)$/))) return `${+m[1] - 1}-${m[2]}`;
+  return null;
+}
+
+/** YYYY-MM-DD shifted by n days (UTC), or null if `p` is not a date. */
+export function shiftDays(p: PeriodKey, n: number): PeriodKey | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p)) return null;
+  return new Date(Date.parse(`${p}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
+}
+
+/** The period immediately before `p` (previous month, quarter or week); null for daily series, whose previous period is simply the previous observation. */
+export function periodBefore(p: PeriodKey, freq: Frequency): PeriodKey | null {
+  let m: RegExpMatchArray | null;
+  if (freq === "quarterly" && (m = p.match(/^(\d{4})-Q([1-4])$/))) return +m[2] === 1 ? `${+m[1] - 1}-Q4` : `${m[1]}-Q${+m[2] - 1}`;
+  if (freq === "monthly" && (m = p.match(/^(\d{4})-(\d{2})$/))) return +m[2] === 1 ? `${+m[1] - 1}-12` : `${m[1]}-${pad(+m[2] - 1)}`;
+  if (freq === "weekly") return shiftDays(p, -7);
   return null;
 }
 
@@ -86,17 +102,42 @@ export function latestTwo(obs: Observation[]): { latest: Observation | null; pre
  * A point is produced only when the exact same period of the previous year exists; there is no
  * interpolation, no nearest-neighbour fallback and no division by zero.
  */
-export function yoyFromIndex(index: Observation[]): Observation[] {
+export function yoyFromIndex(index: Observation[], freq?: Frequency): Observation[] {
   const by = new Map(index.filter((o) => Number.isFinite(o.value)).map((o) => [o.period, o.value]));
   const out: Observation[] = [];
   for (const o of index) {
     if (!Number.isFinite(o.value)) continue;
-    const prevKey = yearBefore(o.period);
+    const prevKey = yearBefore(o.period, freq);
     const base = prevKey ? by.get(prevKey) : undefined;
     if (base == null || base === 0) continue;
     out.push({ period: o.period, value: (o.value / base - 1) * 100 });
   }
   return out;
+}
+
+/**
+ * Period-on-period change: "mom" = (v_t / v_{t-1} − 1) × 100, "diff" = v_t − v_{t-1}. The previous period must be
+ * the exact preceding month/quarter/week (a gap in the data produces no point); for daily series it is the previous observation.
+ */
+export function periodChange(obs: Observation[], freq: Frequency, mode: "mom" | "diff"): Observation[] {
+  const ok = obs.filter((o) => Number.isFinite(o.value));
+  const by = new Map(ok.map((o) => [o.period, o.value]));
+  const out: Observation[] = [];
+  ok.forEach((o, i) => {
+    const key = periodBefore(o.period, freq);
+    const base = key ? by.get(key) : freq === "daily" && i > 0 ? ok[i - 1].value : undefined;
+    if (base == null) return;
+    if (mode === "mom") { if (base !== 0) out.push({ period: o.period, value: (o.value / base - 1) * 100 }); }
+    else out.push({ period: o.period, value: o.value - base });
+  });
+  return out;
+}
+
+/** Applies a series' headline derivation to the published observations (never alters a published value in place). */
+export function applyHeadline(obs: Observation[], transform: Headline, freq: Frequency): Observation[] {
+  if (transform === "yoy") return yoyFromIndex(obs, freq);
+  if (transform === "mom" || transform === "diff") return periodChange(obs, freq, transform);
+  return obs.filter((o) => Number.isFinite(o.value));
 }
 
 export function changeOf(latest: Observation | null, previous: Observation | null): number | null {
@@ -121,16 +162,16 @@ export function assessFreshness(def: SeriesDef, latestPeriod: PeriodKey | null, 
 }
 
 /** Turns one adapter result into the view the UI renders (applies the computed transform, never changes provider values). */
-export function buildView(def: SeriesDef, a: AdapterSeries | undefined, now: number): SeriesView {
-  const base: SeriesView = {
-    def, latest: null, previous: null, change: null, computed: def.transform === "yoy", points: [], freshness: null,
+export function buildView<D extends SeriesDef = MatrixDef>(def: D, a: AdapterSeries | undefined, now: number): SeriesView<D> {
+  const base: SeriesView<D> = {
+    def, latest: null, previous: null, change: null, computed: def.transform !== "none", points: [], freshness: null,
     provider: a?.provider ?? def.provider, sourceUrl: a?.sourceUrl ?? "", refreshedAt: a?.refreshedAt ?? null, retrievedAt: a?.retrievedAt ?? null,
   };
   if (!a) return { ...base, error: "Not returned by the data source." };
   if (!a.ok) return { ...base, error: a.error ?? "Data source error.", errorKind: a.errorKind };
-  const pts = def.transform === "yoy" ? yoyFromIndex(a.observations) : a.observations.filter((o) => Number.isFinite(o.value));
+  const pts = applyHeadline(a.observations, def.transform, def.frequency);
   const { latest, previous } = latestTwo(pts);
-  if (!latest) return { ...base, error: def.transform === "yoy" ? "Not enough history to compute a year-on-year change." : "The source returned no usable values." };
+  if (!latest) return { ...base, error: def.transform === "yoy" ? "Not enough history to compute a year-on-year change." : def.transform !== "none" ? "Not enough history to compute the change." : "The source returned no usable values." };
   return {
     ...base, notice: a.notice, latest, previous, change: changeOf(latest, previous), points: pts,
     freshness: assessFreshness(def, latest.period, a.refreshedAt, now),

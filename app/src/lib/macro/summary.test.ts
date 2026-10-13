@@ -49,6 +49,6 @@ describe("macroSummary (Copilot tool payload)", () => {
     expect(one.economies[0].series).toEqual([]);
     expect(one.coverageGaps).toHaveLength(6);
     expect(out.meta.comparisonViewRule).toMatch(/at least 3 economies qualify; 1 do/);
-    expect(SERIES.length).toBe(35); // 17 via DBnomics + 18 direct
+    expect(SERIES.length).toBe(46); // 15 via DBnomics + 31 direct
   });
 });

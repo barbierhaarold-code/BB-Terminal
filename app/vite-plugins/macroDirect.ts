@@ -1,7 +1,7 @@
 import { canonicalPeriod, periodStart } from "../src/lib/macro/math";
 import type { AdapterId, AdapterSeries, ErrorKind, Observation, SeriesDef } from "../src/lib/macro/types";
 import { AdapterError, RateLimitedError, USER_AGENT, type MacroAdapter } from "./macroAdapters";
-import { fetchWithTimeout } from "./shared";
+import { fetchWithTimeout, mapLimit, readZip } from "./shared";
 
 // ────────────────────────────────────────────────────────────
 // Direct, primary-source macro adapters. One adapter per provider, each returning the
@@ -24,7 +24,7 @@ import { fetchWithTimeout } from "./shared";
 // ────────────────────────────────────────────────────────────
 
 const TIMEOUT_MS = 30_000;
-const KEEP: Record<SeriesDef["frequency"], number> = { daily: 1300, monthly: 360, quarterly: 160 };
+export const KEEP: Record<SeriesDef["frequency"], number> = { daily: 1300, weekly: 520, monthly: 360, quarterly: 160 };
 const HALF_DAY = 12 * 60 * 60_000;
 const SIX_HOURS = 6 * 60 * 60_000;
 
@@ -101,7 +101,7 @@ export function parseCsv(text: string, delimiter = ","): string[][] {
 const retrievedIso = (nowMs: number) => new Date(nowMs).toISOString();
 
 /** Provider rows → canonical, finite, ascending, de-duplicated observations (no future periods, NA dropped, never filled). */
-export function toObservations(def: SeriesDef, raw: Array<[string, number | string | null | undefined]>, nowMs: number): Observation[] {
+export function toObservations(def: SeriesDef, raw: Array<[string, number | string | null | undefined]>, nowMs: number, limit = KEEP[def.frequency]): Observation[] {
   const seen = new Map<string, number>();
   for (const [period, v] of raw) {
     const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
@@ -111,7 +111,7 @@ export function toObservations(def: SeriesDef, raw: Array<[string, number | stri
     if (Date.parse(`${periodStart(p)}T00:00:00Z`) > nowMs) continue;
     seen.set(p, n); // a later duplicate of the same period replaces the earlier one
   }
-  return [...seen].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period)).slice(-KEEP[def.frequency]);
+  return [...seen].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period)).slice(-limit);
 }
 
 interface Meta { sourceUrl: string; refreshedAt?: string | null }
@@ -188,28 +188,98 @@ export function blsAdapter(key?: string): MacroAdapter {
 }
 
 // ───────────── FRED (Federal Reserve Bank of St. Louis API, key) ─────────────
+//
+// Documented limit: 120 requests/minute per key. Every FRED request made by this terminal (snapshot, US deep
+// coverage, detail views, release dates, ALFRED vintages) goes through ONE shared budget of FRED_BUDGET_PER_MIN, so
+// a burst of clicks queues instead of tripping the limit. Requests run at most FRED_CONCURRENCY at a time.
+// "Source updated" for a FRED series is the realtime_start of its latest observation: the date FRED recorded that
+// value, i.e. the release (or revision) date. It costs no extra request.
 
-export function fredAdapter(key?: string): MacroAdapter {
+export const FRED_BUDGET_PER_MIN = 100;
+const RT_WINDOW_DAYS = 400;
+const FRED_CONCURRENCY = 10;
+const fredStamps: number[] = [];
+/** Waits until one more FRED request fits in the shared per-minute budget. */
+export async function fredSlot(now: () => number = Date.now, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))): Promise<void> {
+  for (;;) {
+    const t = now();
+    while (fredStamps.length && t - fredStamps[0] >= 60_000) fredStamps.shift();
+    if (fredStamps.length < FRED_BUDGET_PER_MIN) { fredStamps.push(t); return; }
+    await sleep(60_000 - (t - fredStamps[0]) + 25);
+  }
+}
+
+/** After FRED refuses requests (HTTP 403 Access Denied from its CDN, or 429), every FRED call pauses this long instead of adding load. */
+export const FRED_PAUSE_MS = 10 * 60_000;
+let fredPausedUntil = 0;
+let fredPauseCause = "";
+/** Test seam. */
+export function resetFredPause() { fredPausedUntil = 0; fredPauseCause = ""; fredStamps.length = 0; }
+
+/** One FRED API call through the shared budget. Throws with a scrubbed, real cause. */
+export async function fredGet<T>(path: string, key: string, now: () => number = Date.now): Promise<T> {
+  if (now() < fredPausedUntil) {
+    throw new AdapterError(`FRED refused this terminal's requests (${fredPauseCause}); FRED requests are paused until ${new Date(fredPausedUntil).toISOString().slice(11, 16)} UTC so as not to add load. Not worked around.`, "blocked");
+  }
+  await fredSlot();
+  const sep = path.includes("?") ? "&" : "?";
+  let j: T & { error_code?: number; error_message?: string };
+  try {
+    j = await httpJson<T & { error_code?: number; error_message?: string }>(`https://api.stlouisfed.org/fred/${path}${sep}api_key=${encodeURIComponent(key)}&file_type=json`, { label: "FRED", secrets: [key] });
+  } catch (err) {
+    const m = String((err as Error).message);
+    if (err instanceof RateLimitedError || /HTTP 403/.test(m)) {
+      fredPausedUntil = now() + FRED_PAUSE_MS;
+      fredPauseCause = err instanceof RateLimitedError ? "HTTP 429 Too Many Requests" : "HTTP 403 Access Denied";
+      throw new AdapterError(`FRED refused this terminal's requests (${fredPauseCause}); FRED requests are paused for ${FRED_PAUSE_MS / 60_000} minutes so as not to add load. Not worked around.`, "blocked");
+    }
+    throw err;
+  }
+  if (j.error_message) throw new Error(`FRED: ${snippet(scrub(j.error_message, [key]))}`);
+  return j;
+}
+
+export interface FredOptions {
+  /** years of history for snapshot use (detail views ask for the full history separately) */
+  years?: number;
+  /** compact: only as much history as a table row needs (latest, previous, y/y and a 48-point sparkline), per frequency */
+  compact?: boolean;
+}
+/** Days of history a table row needs, per frequency, in compact mode. */
+const COMPACT_DAYS: Record<SeriesDef["frequency"], number> = { daily: 400, weekly: 3 * 366, monthly: 6 * 366, quarterly: 13 * 366 };
+
+export function fredAdapter(key?: string, o: FredOptions = {}): MacroAdapter {
+  const years = o.years ?? 15;
+  const startOf = (def: SeriesDef, nowMs: number) => o.compact
+    ? new Date(nowMs - COMPACT_DAYS[def.frequency] * 86_400_000).toISOString().slice(0, 10)
+    : `${yearsAgo(nowMs, years)}-01-01`;
   return {
     id: "fred", cacheMs: HALF_DAY,
     async fetchSeries(defs, nowMs) {
       if (!key?.trim()) return keyMissing(defs, nowMs, "FRED_API_KEY", "FRED");
-      const out: AdapterSeries[] = [];
-      for (const def of defs) {
+      const settled = await mapLimit(defs, FRED_CONCURRENCY, async (def) => {
         const sourceUrl = `https://fred.stlouisfed.org/series/${def.code}`;
         try {
-          const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${encodeURIComponent(def.code)}&api_key=${encodeURIComponent(key)}&file_type=json&observation_start=${yearsAgo(nowMs, 15)}-01-01`;
-          const j = await httpJson<{ observations?: Array<{ date: string; value: string }>; error_code?: number; error_message?: string }>(url, { label: "FRED", secrets: [key] });
-          if (j.error_message) throw new Error(`FRED: ${snippet(scrub(j.error_message, [key]))}`);
-          out.push(okSeries(def, toObservations(def, (j.observations ?? []).map((o) => [o.date, o.value]), nowMs), nowMs, { sourceUrl }, "FRED returned the series but it has no values."));
+          // A realtime window (vintages of the last ~400 days) makes each row's realtime_start the date FRED recorded that
+          // value, so the latest row dates the release. Only the current vintage (realtime_end 9999-12-31) supplies values.
+          const rtStart = new Date(nowMs - RT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+          const j = await fredGet<{ observations?: Array<{ date: string; value: string; realtime_start?: string; realtime_end?: string }> }>(`series/observations?series_id=${encodeURIComponent(def.code)}&observation_start=${startOf(def, nowMs)}&realtime_start=${rtStart}&realtime_end=9999-12-31`, key);
+          const raw = (j.observations ?? []).filter((r) => !r.realtime_end || r.realtime_end === "9999-12-31");
+          const lastValid = [...raw].reverse().find((r) => r.value !== "." && r.value.trim() !== "");
+          // A latest value recorded before the window shows the window start; that is not a release date, so it is not shown.
+          const published = lastValid?.realtime_start && lastValid.realtime_start !== rtStart ? `${lastValid.realtime_start}T00:00:00.000Z` : null;
+          return okSeries(def, toObservations(def, raw.map((r) => [r.date, r.value]), nowMs), nowMs, { sourceUrl, refreshedAt: published }, "FRED returned the series but it has no values.");
         } catch (err) {
-          if (err instanceof RateLimitedError) throw err;
+          if (err instanceof RateLimitedError || (err instanceof AdapterError && err.kind === "blocked")) throw err;
           const m = scrub(String((err as Error).message), [key]);
           const rejected = /api[_ ]key/i.test(m) && /(not|invalid)/i.test(m);
-          out.push(failedSeries(def, nowMs, rejected ? `FRED rejected the API key (${snippet(m, 120)}). Check FRED_API_KEY in app/.env.` : m, rejected ? "key_rejected" : "error", sourceUrl));
+          return failedSeries(def, nowMs, rejected ? `FRED rejected the API key (${snippet(m, 120)}). Check FRED_API_KEY in app/.env.` : m, rejected ? "key_rejected" : "error", sourceUrl);
         }
-      }
-      return out;
+      });
+      // A refusal (429, or 403 from FRED's CDN) fails the adapter as a whole, so the plugin serves older data marked STALE.
+      const limited = settled.find((r) => r.status === "rejected" && (r.reason instanceof RateLimitedError || (r.reason instanceof AdapterError && r.reason.kind === "blocked")));
+      if (limited && limited.status === "rejected") throw limited.reason;
+      return settled.map((r, i) => (r.status === "fulfilled" ? r.value : failedSeries(defs[i], nowMs, String((r.reason as Error)?.message ?? r.reason))));
     },
   };
 }
@@ -302,7 +372,7 @@ export const boeAdapter: MacroAdapter = {
     const head = rows[0];
     if (!head || head[0]?.trim().toUpperCase() !== "DATE") throw new Error(`Bank of England answered but not with the expected CSV (${snippet(text, 100) || "empty"}).`);
     return defs.map((def) => {
-      const sourceUrl = "https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp";
+      const sourceUrl = def.code === "IUDBEDR" ? "https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp" : "https://www.bankofengland.co.uk/boeapps/database/";
       const col = head.findIndex((h) => h.trim() === def.code);
       if (col < 0) return failedSeries(def, nowMs, `Bank of England did not return ${def.code}.`, "error", sourceUrl);
       const raw: Array<[string, string]> = [];
@@ -415,9 +485,168 @@ export const imfAdapter: MacroAdapter = {
   },
 };
 
-/** Every direct adapter, with the two keys taken from the env object the plugin was given. */
-export function directAdapters(env: Record<string, string | undefined>): MacroAdapter[] {
-  return [blsAdapter(env.BLS_API_KEY), fredAdapter(env.FRED_API_KEY), eurostatAdapter, statcanAdapter, bocAdapter, boeAdapter, snbAdapter, bisAdapter, jpstatAdapter, imfAdapter];
+// ───────────── U.S. Treasury FiscalData (keyless JSON API) ─────────────
+//
+// Codes: "debt" (Debt to the Penny, total public debt outstanding, $), "tga" (Daily Treasury Statement, TGA closing
+// balance, $ millions), "auction10:<field>" (10-year note auctions incl. reopenings, TIPS excluded; field high_yield or
+// bid_to_cover_ratio). One request per endpoint per refresh; both auction series share one request. The DTS renamed
+// the TGA line in April 2022 ("Treasury General Account (TGA) Closing Balance"); earlier days use other line names and
+// are not mapped here, so the TGA history starts in April 2022 (said in the detail view).
+
+const FD = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service";
+export const TGA_LINE = "Treasury General Account (TGA) Closing Balance";
+type FdRow = Record<string, string | null>;
+
+async function fdAll(path: string): Promise<FdRow[]> {
+  const out: FdRow[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const j = await httpJson<{ data?: FdRow[]; meta?: { "total-pages"?: number }; error?: string; message?: string }>(`${FD}/${path}&page%5Bsize%5D=10000&page%5Bnumber%5D=${page}`, { label: "U.S. Treasury FiscalData" });
+    if (!j.data) throw new Error(`U.S. Treasury FiscalData answered without data (${snippet(j.message ?? j.error ?? "no message", 120)}).`);
+    out.push(...j.data);
+    if (!j.meta?.["total-pages"] || page >= j.meta["total-pages"]) break;
+  }
+  return out;
 }
 
-export const DIRECT_ADAPTER_IDS: AdapterId[] = ["bls", "fred", "eurostat", "statcan", "boc", "boe", "snb", "bis", "jpstat", "imf"];
+export function fiscaldataAdapter(o: { years?: number; /** keep every observation (detail views) instead of the snapshot cap */ full?: boolean } = {}): MacroAdapter {
+  const years = o.years ?? 6;
+  return {
+    id: "fiscaldata", cacheMs: SIX_HOURS,
+    async fetchSeries(defs, nowMs) {
+      const from = `${yearsAgo(nowMs, years)}-01-01`;
+      const endpoints = new Map<string, Promise<FdRow[]>>();
+      const rows = (key: string, path: string) => { if (!endpoints.has(key)) endpoints.set(key, fdAll(path)); return endpoints.get(key)!; };
+      const out: AdapterSeries[] = [];
+      for (const def of defs) {
+        const sourceUrl = def.code === "debt" ? "https://fiscaldata.treasury.gov/datasets/debt-to-the-penny/" : def.code === "tga" ? "https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/" : "https://fiscaldata.treasury.gov/datasets/treasury-securities-auctions-data/";
+        try {
+          let raw: Array<[string, string | null]> = [];
+          if (def.code === "debt") {
+            raw = (await rows("debt", `v2/accounting/od/debt_to_penny?fields=record_date,tot_pub_debt_out_amt&filter=record_date:gte:${from}&sort=record_date`)).map((r) => [r.record_date ?? "", r.tot_pub_debt_out_amt]);
+          } else if (def.code === "tga") {
+            raw = (await rows("tga", `v1/accounting/dts/operating_cash_balance?fields=record_date,account_type,open_today_bal&filter=record_date:gte:${from},account_type:eq:${encodeURIComponent(TGA_LINE)}&sort=record_date`))
+              .map((r) => [r.record_date ?? "", r.open_today_bal]);
+          } else if (def.code.startsWith("auction10:")) {
+            const field = def.code.split(":")[1];
+            if (field !== "high_yield" && field !== "bid_to_cover_ratio") throw new Error(`Unknown FiscalData auction field "${field}".`);
+            raw = (await rows("auction10", `v1/accounting/od/auctions_query?fields=auction_date,high_yield,bid_to_cover_ratio,inflation_index_security&filter=original_security_term:eq:10-Year,security_type:eq:Note,inflation_index_security:eq:No,auction_date:gte:${from}&sort=auction_date`))
+              .map((r) => [r.auction_date ?? "", r[field]]);
+          } else throw new Error(`Unknown FiscalData series code "${def.code}".`);
+          const last = raw.filter(([, v]) => v != null && v !== "null").at(-1)?.[0];
+          out.push(okSeries(def, toObservations(def, raw.map(([d, v]) => [d, v === "null" ? null : v]), nowMs, o.full ? Infinity : undefined), nowMs, { sourceUrl, refreshedAt: last ? `${last}T00:00:00.000Z` : null }, "U.S. Treasury FiscalData returned no values for this series."));
+        } catch (err) {
+          if (err instanceof RateLimitedError) throw err;
+          out.push(failedSeries(def, nowMs, String((err as Error).message), (err as AdapterError).kind ?? "error", sourceUrl));
+        }
+      }
+      return out;
+    },
+  };
+}
+
+// ───────────── NY Fed Survey of Consumer Expectations (one public .xlsx workbook) ─────────────
+//
+// The FRBNY publishes the SCE as one workbook (~1 MB) under a licence that permits reproduction and redistribution with
+// attribution (its "License" sheet). Code "<sheet name>:<column letter>": column A holds yyyymm. One download per
+// refresh serves every SCE series; cached 24 h (the survey is monthly).
+
+const SCE_URL = "https://www.newyorkfed.org/medialibrary/interactives/sce/sce/downloads/data/frbny-sce-data.xlsx";
+
+/** Reads one column of one sheet of an .xlsx held in memory, keyed by the numeric value of column A. Numeric cells only. */
+export function xlsxColumn(buf: Buffer, sheetName: string, column: string): Array<[string, string]> {
+  const files = readZip(buf);
+  const text = (name: string) => files.get(name)?.toString("utf8") ?? "";
+  const unescape = (x: string) => x.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+  const sheet = [...text("xl/workbook.xml").matchAll(/<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="([^"]+)"/g)].find((m) => unescape(m[1]) === sheetName);
+  if (!sheet) throw new Error(`The SCE workbook has no sheet named "${sheetName}".`);
+  const rel = [...text("xl/_rels/workbook.xml.rels").matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)].find((m) => m[1] === sheet[2]);
+  if (!rel) throw new Error(`The SCE workbook does not resolve sheet "${sheetName}".`);
+  const xml = text(`xl/${rel[2].replace(/^\/?xl\//, "")}`);
+  const out: Array<[string, string]> = [];
+  for (const row of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+    const cells = new Map<string, string>();
+    for (const c of row[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const ref = /\br="([A-Z]+)\d+"/.exec(c[1])?.[1];
+      if (!ref || /\bt="(s|str|inlineStr)"/.test(c[1])) continue; // strings are labels, never observations
+      const v = /<v>([^<]*)<\/v>/.exec(c[2] ?? "")?.[1];
+      if (v != null) cells.set(ref, v);
+    }
+    const ym = cells.get("A");
+    const m = ym ? /^(\d{4})(\d{2})$/.exec(ym) : null;
+    if (m && cells.has(column)) out.push([`${m[1]}-${m[2]}`, cells.get(column)!]);
+  }
+  return out;
+}
+
+export const nyfedSceAdapter: MacroAdapter = {
+  id: "nyfedsce", cacheMs: 24 * 60 * 60_000,
+  async fetchSeries(defs, nowMs) {
+    let buf: Buffer;
+    let lastModified: string | null = null; // the workbook carries no publication stamp; its HTTP Last-Modified header is the best available
+    try {
+      const res = await fetchWithTimeout(SCE_URL, { headers: { "user-agent": USER_AGENT } }, TIMEOUT_MS);
+      if (!res.ok) throw new Error(`Federal Reserve Bank of New York answered HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}.`);
+      buf = Buffer.from(await res.arrayBuffer());
+      const lm = res.headers.get("last-modified");
+      lastModified = lm && Number.isFinite(Date.parse(lm)) ? new Date(lm).toISOString() : null;
+    } catch (err) {
+      const e = err as Error & { cause?: { code?: string } };
+      throw new Error(e.message.startsWith("Federal Reserve Bank") ? e.message : `Federal Reserve Bank of New York unreachable (${e.name === "TimeoutError" ? `no answer within ${TIMEOUT_MS / 1000}s` : (e.cause?.code ?? e.message)}).`);
+    }
+    return defs.map((def) => {
+      const i = def.code.lastIndexOf(":");
+      try {
+        const raw = xlsxColumn(buf, def.code.slice(0, i), def.code.slice(i + 1));
+        return okSeries(def, toObservations(def, raw, nowMs), nowMs, { sourceUrl: "https://www.newyorkfed.org/microeconomics/sce", refreshedAt: lastModified }, "The SCE workbook has no values in this column.");
+      } catch (err) {
+        return failedSeries(def, nowMs, String((err as Error).message), "error", "https://www.newyorkfed.org/microeconomics/sce");
+      }
+    });
+  },
+};
+
+// ───────────── Ministry of Finance Japan (JGB constant-maturity yields, CSV) ─────────────
+//
+// Two files: the full history up to the end of the previous month (~1.2 MB) and the current month. Dates are
+// "YYYY/M/D"; "-" marks a maturity with no yield that day. Code = the column header ("10Y"). Public Data License 1.0.
+
+const MOF = "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate";
+
+export function parseMofCsv(text: string, column: string): Array<[string, string]> {
+  const rows = parseCsv(text);
+  const head = rows.findIndex((r) => r[0]?.trim() === "Date");
+  if (head < 0) throw new Error(`Ministry of Finance answered but not with the expected CSV (${snippet(text, 80) || "empty"}).`);
+  const col = rows[head].findIndex((h) => h.trim() === column);
+  if (col < 0) throw new Error(`Ministry of Finance CSV has no "${column}" column.`);
+  const out: Array<[string, string]> = [];
+  for (const r of rows.slice(head + 1)) {
+    const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec((r[0] ?? "").trim());
+    if (m) out.push([`${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`, (r[col] ?? "").trim()]);
+  }
+  return out;
+}
+
+export const mofAdapter: MacroAdapter = {
+  id: "mof", cacheMs: SIX_HOURS,
+  async fetchSeries(defs, nowMs) {
+    const [hist, cur] = await Promise.all([
+      httpText(`${MOF}/historical/jgbcme_all.csv`, { label: "Ministry of Finance Japan" }),
+      httpText(`${MOF}/jgbcme.csv`, { label: "Ministry of Finance Japan" }),
+    ]);
+    return defs.map((def) => {
+      try {
+        const raw = [...parseMofCsv(hist.text, def.code), ...parseMofCsv(cur.text, def.code)];
+        return okSeries(def, toObservations(def, raw, nowMs), nowMs, { sourceUrl: "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm" }, "Ministry of Finance returned the CSV but this maturity has no values.");
+      } catch (err) {
+        return failedSeries(def, nowMs, String((err as Error).message), "error", "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm");
+      }
+    });
+  },
+};
+
+/** Every direct adapter, with the two keys taken from the env object the plugin was given. */
+export function directAdapters(env: Record<string, string | undefined>): MacroAdapter[] {
+  return [blsAdapter(env.BLS_API_KEY), fredAdapter(env.FRED_API_KEY), eurostatAdapter, statcanAdapter, bocAdapter, boeAdapter, snbAdapter, bisAdapter, jpstatAdapter, imfAdapter, fiscaldataAdapter(), nyfedSceAdapter, mofAdapter];
+}
+
+export const DIRECT_ADAPTER_IDS: AdapterId[] = ["bls", "fred", "eurostat", "statcan", "boc", "boe", "snb", "bis", "jpstat", "imf", "fiscaldata", "nyfedsce", "mof"];

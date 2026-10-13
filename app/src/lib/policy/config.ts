@@ -17,6 +17,12 @@ export const FEEDS: FeedDef[] = [
   f("fed-testimony", "Federal Reserve", "central bank", "USD", "speech", "Testimony", "https://www.federalreserve.gov/feeds/testimony.xml"),
   f("fed-feds", "Federal Reserve", "central bank", "USD", "research", "FEDS Notes", "https://www.federalreserve.gov/feeds/feds_notes.xml"),
   f("fed-wp", "Federal Reserve", "central bank", "USD", "research", "Working papers", "https://www.federalreserve.gov/feeds/working_papers.xml"),
+  // Added 2026-10-13 for the Macro Hub detail view (official documents per indicator); probed that day. press_all already
+  // carries the monetary items but only its latest entries; press_monetary keeps FOMC statements, minutes and projections
+  // for longer. Duplicate links are merged.
+  f("fed-monetary", "Federal Reserve", "central bank", "USD", "press release", "Monetary policy", "https://www.federalreserve.gov/feeds/press_monetary.xml"),
+  f("bea-releases", "U.S. Bureau of Economic Analysis", "government", "USD", "statistics", "Release schedule and news releases", "https://apps.bea.gov/rss/rss.xml"),
+  f("census-indicators", "U.S. Census Bureau", "government", "USD", "statistics", "Economic indicators", "https://www.census.gov/economic-indicators/indicator.xml"),
   f("ecb-press", "European Central Bank", "central bank", "EUR", "press release", "Press", "https://www.ecb.europa.eu/rss/press.xml"),
   f("boe-news", "Bank of England", "central bank", "GBP", "press release", "News", "https://www.bankofengland.co.uk/rss/news"),
   f("boe-speeches", "Bank of England", "central bank", "GBP", "speech", "Speeches", "https://www.bankofengland.co.uk/rss/speeches"),
