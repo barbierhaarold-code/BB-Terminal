@@ -236,6 +236,50 @@ export const SERIES: MatrixDef[] = [
     label: "Unemployment rate, 15+ (harmonised, quarterly)", basis: "level, %", decimals: 1, provider: "OECD harmonised unemployment, via FRED (Federal Reserve Bank of St. Louis)",
     attribution: "Source: Organisation for Economic Co-operation and Development (Infra-annual labour statistics), retrieved from FRED, Federal Reserve Bank of St. Louis",
     licenceNote: NOT_AUDITED, lag: QUARTERLY_LABOUR },
+
+  // ═════════ Added 2026-10-13 (each verified against a live query that day) ═════════
+  { ...direct("eurostat"), id: "ea.core", economy: "EA", indicator: "core_cpi_yoy", code: "prc_hicp_minr?geo=EA&unit=RCH_A&coicop18=TOT_X_NRG_FOOD", frequency: "monthly", kind: "level", transform: "none",
+    label: "HICP excluding energy, food, alcohol and tobacco", basis: "y/y, % (published by Eurostat)", decimals: 1, provider: "Eurostat",
+    attribution: "Source: Eurostat, HICP (prc_hicp_minr), ECOICOP ver. 2, all items excluding energy, food, alcohol and tobacco",
+    licenceNote: "Eurostat: free reuse with the source acknowledged.", lag: MONTHLY, agency: "Eurostat" },
+  { ...dbn, id: "uk.core", economy: "UK", indicator: "core_cpi_yoy", code: "ONS/MM23/DKO8.M", frequency: "monthly", kind: "level", transform: "none",
+    label: "CPI excluding energy, food, alcohol and tobacco", basis: "y/y, % (published by ONS)", decimals: 1, provider: "Office for National Statistics",
+    attribution: `Source: Office for National Statistics (series DKO8), ${VIA}. Contains public sector information licensed under the Open Government Licence v3.0`,
+    licenceNote: "Open Government Licence v3.0.", lag: MONTHLY, agency: "Office for National Statistics" },
+  { ...direct("boe"), id: "uk.y10", economy: "UK", indicator: "yield_10y", code: "IUDMNPY", frequency: "daily", kind: "level", transform: "none",
+    label: "10-year nominal par yield (Bank of England yield curve)", basis: "level, % (estimated from gilt prices; not a single benchmark gilt)", decimals: 2, provider: "Bank of England",
+    attribution: "Source: Bank of England, Interactive Statistical Database (IUDMNPY, 10-year nominal par yield)",
+    licenceNote: NOT_AUDITED, lag: DAILY, agency: "Bank of England", chart: ["level", "diff"] },
+  { ...direct("statcan"), id: "ca.core", economy: "CA", indicator: "core_cpi_yoy", code: "108785715", frequency: "monthly", kind: "level", transform: "none",
+    label: "CPI-trim (Bank of Canada preferred core measure)", basis: "y/y, % (published)", decimals: 1, provider: "Statistics Canada",
+    attribution: "Source: Statistics Canada, Table 18-10-0256-01 (vector v108785715, CPI-trim). Adapted from Statistics Canada under the Statistics Canada Open Licence; this does not constitute an endorsement by Statistics Canada",
+    licenceNote: "Statistics Canada Open Licence.", lag: MONTHLY, agency: "Statistics Canada" },
+  { ...direct("statcan"), id: "ca.gdp", economy: "CA", indicator: "gdp_growth", code: "62305752", frequency: "quarterly", kind: "level", transform: "yoy",
+    label: "Real GDP growth (chained 2017 dollars)", basis: "y/y, % (computed from seasonally adjusted chained volumes; Statistics Canada's headline is q/q annualised)", decimals: 1, provider: "Statistics Canada",
+    attribution: "Source: Statistics Canada, Table 36-10-0104-01 (vector v62305752). Year-on-year change computed by this terminal. Adapted from Statistics Canada under the Statistics Canada Open Licence; this does not constitute an endorsement by Statistics Canada",
+    licenceNote: "Statistics Canada Open Licence.", valueNote: "computed from chained volumes (levels, not rounded)", agency: "Statistics Canada", sourceUnit: "usd_mn", chart: ["yoy", "mom", "level"],
+    lag: { days: 160, basis: "observation", why: "GDP ~60 days after quarter end: up to ~160 days old before the next one" } },
+  { ...direct("boc"), id: "ca.y10", economy: "CA", indicator: "yield_10y", code: "BD.CDN.10YR.DQ.YLD", frequency: "daily", kind: "level", transform: "none",
+    label: "Government of Canada 10-year benchmark bond yield", basis: "level, %", decimals: 2, provider: "Bank of Canada",
+    attribution: "Source: Bank of Canada, Valet API (BD.CDN.10YR.DQ.YLD, benchmark bond yield, 10-year)",
+    licenceNote: NOT_AUDITED, lag: DAILY, agency: "Bank of Canada", chart: ["level", "diff"] },
+  { ...direct("fred"), id: "jp.gdp", economy: "JP", indicator: "gdp_growth", code: "JPNRGDPEXP", frequency: "quarterly", kind: "level", transform: "yoy",
+    label: "Real GDP growth", basis: "y/y, % (computed from seasonally adjusted real GDP)", decimals: 1, provider: "Cabinet Office of Japan, via FRED",
+    agency: "Cabinet Office, Government of Japan", attribution: fredAttribution("Cabinet Office, Government of Japan", "JPNRGDPEXP", "Year-on-year change computed by this terminal"),
+    licenceNote: FRED_CR, valueNote: "computed from real GDP levels (not rounded)", sourceUnit: "index", chart: ["yoy", "mom", "level"],
+    lag: { days: 160, basis: "observation", why: "first preliminary estimate ~45 days after quarter end, then republished by FRED: up to ~160 days old before the next one" } },
+  { ...direct("mof"), id: "jp.y10", economy: "JP", indicator: "yield_10y", code: "10Y", frequency: "daily", kind: "level", transform: "none",
+    label: "JGB 10-year constant-maturity yield", basis: "level, %", decimals: 3, provider: "Ministry of Finance Japan",
+    attribution: "Source: Ministry of Finance Japan, Interest Rate (JGB constant-maturity yields), jgbcme.csv",
+    licenceNote: "Ministry of Finance website: Public Data License 1.0 (reuse with source citation).", lag: DAILY, agency: "Ministry of Finance Japan", chart: ["level", "diff"] },
+  { ...direct("fred"), id: "ch.y10", economy: "CH", indicator: "yield_10y", code: "IRLTLT01CHM156N", frequency: "monthly", kind: "level", transform: "none",
+    label: "Long-term government bond yield, 10-year (monthly average)", basis: "level, % (monthly average, OECD Main Economic Indicators)", decimals: 2, provider: "OECD, via FRED",
+    agency: "OECD (from Swiss National Bank data)", attribution: fredAttribution("Organisation for Economic Co-operation and Development (Main Economic Indicators)", "IRLTLT01CHM156N"),
+    licenceNote: FRED_CR, valueNote: "monthly average, not a daily close", lag: MONTHLY, chart: ["level", "diff"] },
+  { ...direct("fred"), id: "nz.y10", economy: "NZ", indicator: "yield_10y", code: "IRLTLT01NZM156N", frequency: "monthly", kind: "level", transform: "none",
+    label: "Long-term government bond yield, 10-year (monthly average)", basis: "level, % (monthly average, OECD Main Economic Indicators)", decimals: 2, provider: "OECD, via FRED",
+    agency: "OECD (from Reserve Bank of New Zealand data)", attribution: fredAttribution("Organisation for Economic Co-operation and Development (Main Economic Indicators)", "IRLTLT01NZM156N"),
+    licenceNote: FRED_CR, valueNote: "monthly average, not a daily close", lag: MONTHLY, chart: ["level", "diff"] },
 ];
 
 
@@ -248,36 +292,20 @@ const no = (reason: string): GapSpec => ({ kind: "no_series", reason });
 const notPinned = (reason: string): GapSpec => ({ kind: "not_pinned", reason });
 
 const OECD_BLOCKED = "The OECD SDMX API (sdmx.oecd.org) answered a Cloudflare bot challenge (HTTP 403) from this network on 2026-10-09; this terminal does not bypass bot challenges.";
-const OUT_OF_SCOPE = "Outside the cells covered in this step; no endpoint was evaluated for it.";
 
 /** Cells that have no series, with the reason. Cells with a series that is currently unavailable are reported by the page from the live error instead. */
 export const KNOWN_GAPS: Partial<Record<Economy, Partial<Record<Indicator, GapSpec>>>> = {
   US: {},
-  EA: {
-    core_cpi_yoy: notPinned("Eurostat publishes core HICP (excluding energy, food, alcohol and tobacco) in the same dataset as headline HICP; not wired in this step."),
-  },
-  UK: {
-    core_cpi_yoy: notPinned("ONS publishes a core CPI series, but its code was not pinned and verified."),
-    yield_10y: no("No 10-year gilt yield series was found on DBnomics, and no other endpoint was evaluated in this step."),
-  },
-  JP: {
-    gdp_growth: no(`No keyless Cabinet Office GDP endpoint was found. ${OECD_BLOCKED}`),
-    yield_10y: no(`No keyless 10-year JGB yield endpoint was found. ${OECD_BLOCKED}`),
-  },
-  CA: {
-    core_cpi_yoy: notPinned("Statistics Canada publishes CPI-trim and CPI-median through the same vector API as headline CPI; not wired in this step."),
-    gdp_growth: notPinned("Statistics Canada table 36100104 is on its vector API, but the series was not pinned and verified."),
-    yield_10y: no("No 10-year yield series was found on DBnomics, and no other endpoint was evaluated in this step."),
-  },
+  EA: {},
+  UK: {},
+  JP: {},
+  CA: {},
   AU: {},
   NZ: {
-    core_cpi_yoy: no(OUT_OF_SCOPE),
-    gdp_growth: no(`No fresh source: the IMF national-accounts dataset and FRED (OECD) both end with Q1 2026 (about 190 days old, over the 160-day rule); the Stats NZ API answered HTTP 502 and the RBNZ file server HTTP 403. ${OECD_BLOCKED}`),
-    yield_10y: no(OUT_OF_SCOPE),
+    core_cpi_yoy: no("Stats NZ does not publish a core CPI measure through an API reachable from here (the Stats NZ API answered HTTP 502 on 2026-10-09; the RBNZ file server HTTP 403); the OECD 'non-food non-energy' series on FRED ends in 2025 (checked 2026-10-13). The RBNZ's sectoral factor model is not machine-readable from here."),
+    gdp_growth: no(`No fresh source (re-checked 2026-10-13): the IMF national-accounts dataset and FRED/OECD (NAEXKP01NZQ657S, NZLGDPRQPSMEI) both end with Q1 2026, older than the 160-day rule; the Stats NZ API answered HTTP 502 and the RBNZ file server HTTP 403. ${OECD_BLOCKED}`),
   },
-  CH: {
-    yield_10y: no(OUT_OF_SCOPE),
-  },
+  CH: {},
 };
 
 /** Static reason for a cell with no series. */

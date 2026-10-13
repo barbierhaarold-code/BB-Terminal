@@ -350,7 +350,7 @@ export const boeAdapter: MacroAdapter = {
     const head = rows[0];
     if (!head || head[0]?.trim().toUpperCase() !== "DATE") throw new Error(`Bank of England answered but not with the expected CSV (${snippet(text, 100) || "empty"}).`);
     return defs.map((def) => {
-      const sourceUrl = "https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp";
+      const sourceUrl = def.code === "IUDBEDR" ? "https://www.bankofengland.co.uk/boeapps/database/Bank-Rate.asp" : "https://www.bankofengland.co.uk/boeapps/database/";
       const col = head.findIndex((h) => h.trim() === def.code);
       if (col < 0) return failedSeries(def, nowMs, `Bank of England did not return ${def.code}.`, "error", sourceUrl);
       const raw: Array<[string, string]> = [];
@@ -583,9 +583,48 @@ export const nyfedSceAdapter: MacroAdapter = {
   },
 };
 
-/** Every direct adapter, with the two keys taken from the env object the plugin was given. */
-export function directAdapters(env: Record<string, string | undefined>): MacroAdapter[] {
-  return [blsAdapter(env.BLS_API_KEY), fredAdapter(env.FRED_API_KEY), eurostatAdapter, statcanAdapter, bocAdapter, boeAdapter, snbAdapter, bisAdapter, jpstatAdapter, imfAdapter, fiscaldataAdapter(), nyfedSceAdapter];
+// ───────────── Ministry of Finance Japan (JGB constant-maturity yields, CSV) ─────────────
+//
+// Two files: the full history up to the end of the previous month (~1.2 MB) and the current month. Dates are
+// "YYYY/M/D"; "-" marks a maturity with no yield that day. Code = the column header ("10Y"). Public Data License 1.0.
+
+const MOF = "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate";
+
+export function parseMofCsv(text: string, column: string): Array<[string, string]> {
+  const rows = parseCsv(text);
+  const head = rows.findIndex((r) => r[0]?.trim() === "Date");
+  if (head < 0) throw new Error(`Ministry of Finance answered but not with the expected CSV (${snippet(text, 80) || "empty"}).`);
+  const col = rows[head].findIndex((h) => h.trim() === column);
+  if (col < 0) throw new Error(`Ministry of Finance CSV has no "${column}" column.`);
+  const out: Array<[string, string]> = [];
+  for (const r of rows.slice(head + 1)) {
+    const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec((r[0] ?? "").trim());
+    if (m) out.push([`${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`, (r[col] ?? "").trim()]);
+  }
+  return out;
 }
 
-export const DIRECT_ADAPTER_IDS: AdapterId[] = ["bls", "fred", "eurostat", "statcan", "boc", "boe", "snb", "bis", "jpstat", "imf", "fiscaldata", "nyfedsce"];
+export const mofAdapter: MacroAdapter = {
+  id: "mof", cacheMs: SIX_HOURS,
+  async fetchSeries(defs, nowMs) {
+    const [hist, cur] = await Promise.all([
+      httpText(`${MOF}/historical/jgbcme_all.csv`, { label: "Ministry of Finance Japan" }),
+      httpText(`${MOF}/jgbcme.csv`, { label: "Ministry of Finance Japan" }),
+    ]);
+    return defs.map((def) => {
+      try {
+        const raw = [...parseMofCsv(hist.text, def.code), ...parseMofCsv(cur.text, def.code)];
+        return okSeries(def, toObservations(def, raw, nowMs), nowMs, { sourceUrl: "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm" }, "Ministry of Finance returned the CSV but this maturity has no values.");
+      } catch (err) {
+        return failedSeries(def, nowMs, String((err as Error).message), "error", "https://www.mof.go.jp/english/policy/jgbs/reference/interest_rate/index.htm");
+      }
+    });
+  },
+};
+
+/** Every direct adapter, with the two keys taken from the env object the plugin was given. */
+export function directAdapters(env: Record<string, string | undefined>): MacroAdapter[] {
+  return [blsAdapter(env.BLS_API_KEY), fredAdapter(env.FRED_API_KEY), eurostatAdapter, statcanAdapter, bocAdapter, boeAdapter, snbAdapter, bisAdapter, jpstatAdapter, imfAdapter, fiscaldataAdapter(), nyfedSceAdapter, mofAdapter];
+}
+
+export const DIRECT_ADAPTER_IDS: AdapterId[] = ["bls", "fred", "eurostat", "statcan", "boc", "boe", "snb", "bis", "jpstat", "imf", "fiscaldata", "nyfedsce", "mof"];
