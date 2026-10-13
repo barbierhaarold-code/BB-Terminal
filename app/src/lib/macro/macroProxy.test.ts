@@ -226,3 +226,26 @@ describe("macro-proxy with several adapters", () => {
     expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi").error).toMatch(/No adapter "fred" is mounted/);
   });
 });
+
+describe("macro-proxy US catalogue and detail routes", () => {
+  it("/us is its own cached catalogue: the overview adapters are not re-run, and an unmounted provider is reported per series", async () => {
+    const dbn = namedAdapter("dbnomics", allOk);
+    const fred = namedAdapter("fred", allOk);
+    const s = await mount("dev", false, [dbn.adapter, fred.adapter]);
+    const r = await s.get("/macro-proxy/us");
+    expect(r.status).toBe(200);
+    const ids = r.body.results.series.map((x: AdapterSeries) => x.id);
+    expect(ids).toContain("us.payrolls");
+    expect(ids).not.toContain("ea.cpi");
+    expect(dbn.calls.n).toBe(0); // no US series comes from DBnomics
+    expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.debt").error).toMatch(/No adapter "fiscaldata" is mounted/);
+    expect((await s.get("/macro-proxy/us")).headers.get("x-bbterminal-cache")).toBe("HIT");
+  });
+  it("/series answers 404 for an unknown id and names the routes for an unknown path", async () => {
+    const s = await mount("dev", false, namedAdapter("dbnomics", allOk).adapter);
+    expect((await s.get("/macro-proxy/series?id=nope")).status).toBe(404);
+    const r = await s.get("/macro-proxy/whatever");
+    expect(r.status).toBe(404);
+    expect(r.body.warnings[0].message).toMatch(/\/macro-proxy\/series\?id=/);
+  });
+});

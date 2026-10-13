@@ -111,7 +111,7 @@ export interface SeriesDef {
   vintages?: boolean;
 }
 
-export type Unit = "%" | "pp" | "index" | "k" | "persons" | "usd_mn" | "usd_bn" | "usd_hr" | "ratio" | "bp";
+export type Unit = "%" | "pp" | "index" | "k" | "persons" | "usd" | "usd_mn" | "usd_bn" | "usd_hr" | "ratio" | "bp";
 
 /** A series that fills a G8 overview cell. */
 export type MatrixDef = SeriesDef & { indicator: Indicator };

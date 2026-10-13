@@ -1,7 +1,7 @@
 import { canonicalPeriod, periodStart } from "../src/lib/macro/math";
 import type { AdapterId, AdapterSeries, ErrorKind, Observation, SeriesDef } from "../src/lib/macro/types";
 import { AdapterError, RateLimitedError, USER_AGENT, type MacroAdapter } from "./macroAdapters";
-import { fetchWithTimeout, mapLimit } from "./shared";
+import { fetchWithTimeout, mapLimit, readZip } from "./shared";
 
 // ────────────────────────────────────────────────────────────
 // Direct, primary-source macro adapters. One adapter per provider, each returning the
@@ -101,7 +101,7 @@ export function parseCsv(text: string, delimiter = ","): string[][] {
 const retrievedIso = (nowMs: number) => new Date(nowMs).toISOString();
 
 /** Provider rows → canonical, finite, ascending, de-duplicated observations (no future periods, NA dropped, never filled). */
-export function toObservations(def: SeriesDef, raw: Array<[string, number | string | null | undefined]>, nowMs: number): Observation[] {
+export function toObservations(def: SeriesDef, raw: Array<[string, number | string | null | undefined]>, nowMs: number, limit = KEEP[def.frequency]): Observation[] {
   const seen = new Map<string, number>();
   for (const [period, v] of raw) {
     const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
@@ -111,7 +111,7 @@ export function toObservations(def: SeriesDef, raw: Array<[string, number | stri
     if (Date.parse(`${periodStart(p)}T00:00:00Z`) > nowMs) continue;
     seen.set(p, n); // a later duplicate of the same period replaces the earlier one
   }
-  return [...seen].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period)).slice(-KEEP[def.frequency]);
+  return [...seen].map(([period, value]) => ({ period, value })).sort((a, b) => a.period.localeCompare(b.period)).slice(-limit);
 }
 
 interface Meta { sourceUrl: string; refreshedAt?: string | null }
@@ -197,7 +197,7 @@ export function blsAdapter(key?: string): MacroAdapter {
 
 export const FRED_BUDGET_PER_MIN = 100;
 const RT_WINDOW_DAYS = 400;
-const FRED_CONCURRENCY = 6;
+const FRED_CONCURRENCY = 10;
 const fredStamps: number[] = [];
 /** Waits until one more FRED request fits in the shared per-minute budget. */
 export async function fredSlot(now: () => number = Date.now, sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))): Promise<void> {
@@ -218,10 +218,20 @@ export async function fredGet<T>(path: string, key: string): Promise<T> {
   return j;
 }
 
-export interface FredOptions { /** years of history for snapshot use (detail views ask for the full history separately) */ years?: number }
+export interface FredOptions {
+  /** years of history for snapshot use (detail views ask for the full history separately) */
+  years?: number;
+  /** compact: only as much history as a table row needs (latest, previous, y/y and a 48-point sparkline), per frequency */
+  compact?: boolean;
+}
+/** Days of history a table row needs, per frequency, in compact mode. */
+const COMPACT_DAYS: Record<SeriesDef["frequency"], number> = { daily: 400, weekly: 3 * 366, monthly: 6 * 366, quarterly: 13 * 366 };
 
 export function fredAdapter(key?: string, o: FredOptions = {}): MacroAdapter {
   const years = o.years ?? 15;
+  const startOf = (def: SeriesDef, nowMs: number) => o.compact
+    ? new Date(nowMs - COMPACT_DAYS[def.frequency] * 86_400_000).toISOString().slice(0, 10)
+    : `${yearsAgo(nowMs, years)}-01-01`;
   return {
     id: "fred", cacheMs: HALF_DAY,
     async fetchSeries(defs, nowMs) {
@@ -232,7 +242,7 @@ export function fredAdapter(key?: string, o: FredOptions = {}): MacroAdapter {
           // A realtime window (vintages of the last ~400 days) makes each row's realtime_start the date FRED recorded that
           // value, so the latest row dates the release. Only the current vintage (realtime_end 9999-12-31) supplies values.
           const rtStart = new Date(nowMs - RT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
-          const j = await fredGet<{ observations?: Array<{ date: string; value: string; realtime_start?: string; realtime_end?: string }> }>(`series/observations?series_id=${encodeURIComponent(def.code)}&observation_start=${yearsAgo(nowMs, years)}-01-01&realtime_start=${rtStart}&realtime_end=9999-12-31`, key);
+          const j = await fredGet<{ observations?: Array<{ date: string; value: string; realtime_start?: string; realtime_end?: string }> }>(`series/observations?series_id=${encodeURIComponent(def.code)}&observation_start=${startOf(def, nowMs)}&realtime_start=${rtStart}&realtime_end=9999-12-31`, key);
           const raw = (j.observations ?? []).filter((r) => !r.realtime_end || r.realtime_end === "9999-12-31");
           const lastValid = [...raw].reverse().find((r) => r.value !== "." && r.value.trim() !== "");
           // A latest value recorded before the window shows the window start; that is not a release date, so it is not shown.
@@ -453,9 +463,129 @@ export const imfAdapter: MacroAdapter = {
   },
 };
 
-/** Every direct adapter, with the two keys taken from the env object the plugin was given. */
-export function directAdapters(env: Record<string, string | undefined>): MacroAdapter[] {
-  return [blsAdapter(env.BLS_API_KEY), fredAdapter(env.FRED_API_KEY), eurostatAdapter, statcanAdapter, bocAdapter, boeAdapter, snbAdapter, bisAdapter, jpstatAdapter, imfAdapter];
+// ───────────── U.S. Treasury FiscalData (keyless JSON API) ─────────────
+//
+// Codes: "debt" (Debt to the Penny, total public debt outstanding, $), "tga" (Daily Treasury Statement, TGA closing
+// balance, $ millions), "auction10:<field>" (10-year note auctions incl. reopenings, TIPS excluded; field high_yield or
+// bid_to_cover_ratio). One request per endpoint per refresh; both auction series share one request. The DTS renamed
+// the TGA line in April 2022 ("Treasury General Account (TGA) Closing Balance"); earlier days use other line names and
+// are not mapped here, so the TGA history starts in April 2022 (said in the detail view).
+
+const FD = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service";
+export const TGA_LINE = "Treasury General Account (TGA) Closing Balance";
+type FdRow = Record<string, string | null>;
+
+async function fdAll(path: string): Promise<FdRow[]> {
+  const out: FdRow[] = [];
+  for (let page = 1; page <= 10; page++) {
+    const j = await httpJson<{ data?: FdRow[]; meta?: { "total-pages"?: number }; error?: string; message?: string }>(`${FD}/${path}&page%5Bsize%5D=10000&page%5Bnumber%5D=${page}`, { label: "U.S. Treasury FiscalData" });
+    if (!j.data) throw new Error(`U.S. Treasury FiscalData answered without data (${snippet(j.message ?? j.error ?? "no message", 120)}).`);
+    out.push(...j.data);
+    if (!j.meta?.["total-pages"] || page >= j.meta["total-pages"]) break;
+  }
+  return out;
 }
 
-export const DIRECT_ADAPTER_IDS: AdapterId[] = ["bls", "fred", "eurostat", "statcan", "boc", "boe", "snb", "bis", "jpstat", "imf"];
+export function fiscaldataAdapter(o: { years?: number; /** keep every observation (detail views) instead of the snapshot cap */ full?: boolean } = {}): MacroAdapter {
+  const years = o.years ?? 6;
+  return {
+    id: "fiscaldata", cacheMs: SIX_HOURS,
+    async fetchSeries(defs, nowMs) {
+      const from = `${yearsAgo(nowMs, years)}-01-01`;
+      const endpoints = new Map<string, Promise<FdRow[]>>();
+      const rows = (key: string, path: string) => { if (!endpoints.has(key)) endpoints.set(key, fdAll(path)); return endpoints.get(key)!; };
+      const out: AdapterSeries[] = [];
+      for (const def of defs) {
+        const sourceUrl = def.code === "debt" ? "https://fiscaldata.treasury.gov/datasets/debt-to-the-penny/" : def.code === "tga" ? "https://fiscaldata.treasury.gov/datasets/daily-treasury-statement/" : "https://fiscaldata.treasury.gov/datasets/treasury-securities-auctions-data/";
+        try {
+          let raw: Array<[string, string | null]> = [];
+          if (def.code === "debt") {
+            raw = (await rows("debt", `v2/accounting/od/debt_to_penny?fields=record_date,tot_pub_debt_out_amt&filter=record_date:gte:${from}&sort=record_date`)).map((r) => [r.record_date ?? "", r.tot_pub_debt_out_amt]);
+          } else if (def.code === "tga") {
+            raw = (await rows("tga", `v1/accounting/dts/operating_cash_balance?fields=record_date,account_type,open_today_bal&filter=record_date:gte:${from},account_type:eq:${encodeURIComponent(TGA_LINE)}&sort=record_date`))
+              .map((r) => [r.record_date ?? "", r.open_today_bal]);
+          } else if (def.code.startsWith("auction10:")) {
+            const field = def.code.split(":")[1];
+            if (field !== "high_yield" && field !== "bid_to_cover_ratio") throw new Error(`Unknown FiscalData auction field "${field}".`);
+            raw = (await rows("auction10", `v1/accounting/od/auctions_query?fields=auction_date,high_yield,bid_to_cover_ratio,inflation_index_security&filter=original_security_term:eq:10-Year,security_type:eq:Note,inflation_index_security:eq:No,auction_date:gte:${from}&sort=auction_date`))
+              .map((r) => [r.auction_date ?? "", r[field]]);
+          } else throw new Error(`Unknown FiscalData series code "${def.code}".`);
+          const last = raw.filter(([, v]) => v != null && v !== "null").at(-1)?.[0];
+          out.push(okSeries(def, toObservations(def, raw.map(([d, v]) => [d, v === "null" ? null : v]), nowMs, o.full ? Infinity : undefined), nowMs, { sourceUrl, refreshedAt: last ? `${last}T00:00:00.000Z` : null }, "U.S. Treasury FiscalData returned no values for this series."));
+        } catch (err) {
+          if (err instanceof RateLimitedError) throw err;
+          out.push(failedSeries(def, nowMs, String((err as Error).message), (err as AdapterError).kind ?? "error", sourceUrl));
+        }
+      }
+      return out;
+    },
+  };
+}
+
+// ───────────── NY Fed Survey of Consumer Expectations (one public .xlsx workbook) ─────────────
+//
+// The FRBNY publishes the SCE as one workbook (~1 MB) under a licence that permits reproduction and redistribution with
+// attribution (its "License" sheet). Code "<sheet name>:<column letter>": column A holds yyyymm. One download per
+// refresh serves every SCE series; cached 24 h (the survey is monthly).
+
+const SCE_URL = "https://www.newyorkfed.org/medialibrary/interactives/sce/sce/downloads/data/frbny-sce-data.xlsx";
+
+/** Reads one column of one sheet of an .xlsx held in memory, keyed by the numeric value of column A. Numeric cells only. */
+export function xlsxColumn(buf: Buffer, sheetName: string, column: string): Array<[string, string]> {
+  const files = readZip(buf);
+  const text = (name: string) => files.get(name)?.toString("utf8") ?? "";
+  const unescape = (x: string) => x.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+  const sheet = [...text("xl/workbook.xml").matchAll(/<sheet\b[^>]*\bname="([^"]*)"[^>]*\br:id="([^"]+)"/g)].find((m) => unescape(m[1]) === sheetName);
+  if (!sheet) throw new Error(`The SCE workbook has no sheet named "${sheetName}".`);
+  const rel = [...text("xl/_rels/workbook.xml.rels").matchAll(/<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="([^"]+)"/g)].find((m) => m[1] === sheet[2]);
+  if (!rel) throw new Error(`The SCE workbook does not resolve sheet "${sheetName}".`);
+  const xml = text(`xl/${rel[2].replace(/^\/?xl\//, "")}`);
+  const out: Array<[string, string]> = [];
+  for (const row of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+    const cells = new Map<string, string>();
+    for (const c of row[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const ref = /\br="([A-Z]+)\d+"/.exec(c[1])?.[1];
+      if (!ref || /\bt="(s|str|inlineStr)"/.test(c[1])) continue; // strings are labels, never observations
+      const v = /<v>([^<]*)<\/v>/.exec(c[2] ?? "")?.[1];
+      if (v != null) cells.set(ref, v);
+    }
+    const ym = cells.get("A");
+    const m = ym ? /^(\d{4})(\d{2})$/.exec(ym) : null;
+    if (m && cells.has(column)) out.push([`${m[1]}-${m[2]}`, cells.get(column)!]);
+  }
+  return out;
+}
+
+export const nyfedSceAdapter: MacroAdapter = {
+  id: "nyfedsce", cacheMs: 24 * 60 * 60_000,
+  async fetchSeries(defs, nowMs) {
+    let buf: Buffer;
+    let lastModified: string | null = null; // the workbook carries no publication stamp; its HTTP Last-Modified header is the best available
+    try {
+      const res = await fetchWithTimeout(SCE_URL, { headers: { "user-agent": USER_AGENT } }, TIMEOUT_MS);
+      if (!res.ok) throw new Error(`Federal Reserve Bank of New York answered HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}.`);
+      buf = Buffer.from(await res.arrayBuffer());
+      const lm = res.headers.get("last-modified");
+      lastModified = lm && Number.isFinite(Date.parse(lm)) ? new Date(lm).toISOString() : null;
+    } catch (err) {
+      const e = err as Error & { cause?: { code?: string } };
+      throw new Error(e.message.startsWith("Federal Reserve Bank") ? e.message : `Federal Reserve Bank of New York unreachable (${e.name === "TimeoutError" ? `no answer within ${TIMEOUT_MS / 1000}s` : (e.cause?.code ?? e.message)}).`);
+    }
+    return defs.map((def) => {
+      const i = def.code.lastIndexOf(":");
+      try {
+        const raw = xlsxColumn(buf, def.code.slice(0, i), def.code.slice(i + 1));
+        return okSeries(def, toObservations(def, raw, nowMs), nowMs, { sourceUrl: "https://www.newyorkfed.org/microeconomics/sce", refreshedAt: lastModified }, "The SCE workbook has no values in this column.");
+      } catch (err) {
+        return failedSeries(def, nowMs, String((err as Error).message), "error", "https://www.newyorkfed.org/microeconomics/sce");
+      }
+    });
+  },
+};
+
+/** Every direct adapter, with the two keys taken from the env object the plugin was given. */
+export function directAdapters(env: Record<string, string | undefined>): MacroAdapter[] {
+  return [blsAdapter(env.BLS_API_KEY), fredAdapter(env.FRED_API_KEY), eurostatAdapter, statcanAdapter, bocAdapter, boeAdapter, snbAdapter, bisAdapter, jpstatAdapter, imfAdapter, fiscaldataAdapter(), nyfedSceAdapter];
+}
+
+export const DIRECT_ADAPTER_IDS: AdapterId[] = ["bls", "fred", "eurostat", "statcan", "boc", "boe", "snb", "bis", "jpstat", "imf", "fiscaldata", "nyfedsce"];
