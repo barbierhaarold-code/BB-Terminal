@@ -68,6 +68,8 @@ export function createDetailService(o: {
   adapters: Map<string, MacroAdapter>;
   fredKey?: string;
   now?: () => number;
+  /** an already-fetched copy of a non-FRED series (the overview snapshot), used instead of a new upstream request */
+  fromSnapshot?: (id: string) => AdapterSeries | undefined;
   /** test seam: replaces the gold fetch (OpenBB) */
   goldFetcher?: (fromIso: string) => Promise<Observation[]>;
 }): DetailService {
@@ -141,9 +143,30 @@ export function createDetailService(o: {
     releaseIds.set(code, { value: v, expires: t + 7 * SHARED_TTL_MS });
     return v;
   }
+  /** Upcoming dates of EVERY FRED release in ≤ 3 requests (FRED pages at 1,000 rows), cached 12 h; replaces one request per release. */
+  let allDates: Cached<Map<number, string[]>> | null = null;
+  let allDatesInflight: Promise<Map<number, string[]>> | null = null;
+  async function upcoming(t: number): Promise<Map<number, string[]>> {
+    if (allDates && allDates.expires > t) return allDates.value;
+    if (allDatesInflight) return allDatesInflight;
+    allDatesInflight = (async () => {
+      const today = new Date(t).toISOString().slice(0, 10), until = new Date(t + 75 * 86_400_000).toISOString().slice(0, 10);
+      const m = new Map<number, string[]>();
+      for (let offset = 0; offset < 3000; offset += 1000) {
+        const j = await fredGet<{ release_dates?: Array<{ release_id: number; date: string }>; count?: number }>(`releases/dates?realtime_start=${today}&realtime_end=${until}&include_release_dates_with_no_data=true&limit=1000&offset=${offset}&order_by=release_date&sort_order=asc`, key!);
+        for (const r of j.release_dates ?? []) if (r.date >= today) m.set(r.release_id, [...(m.get(r.release_id) ?? []), r.date]);
+        if ((j.release_dates?.length ?? 0) < 1000) break;
+      }
+      allDates = { value: m, expires: t + RELEASE_TTL_MS };
+      return m;
+    })().finally(() => { allDatesInflight = null; });
+    return allDatesInflight;
+  }
+
   async function datesOf(id: number, t: number): Promise<string[]> {
     const c = releaseDates.get(id);
     if (c && c.expires > t) return c.value;
+    try { const fromAll = (await upcoming(t)).get(id); if (fromAll?.length) return fromAll; } catch { /* fall back to the per-release request below */ }
     const today = new Date(t).toISOString().slice(0, 10);
     const j = await fredGet<{ release_dates?: Array<{ date: string }> }>(`release/dates?release_id=${id}&realtime_start=${today}&include_release_dates_with_no_data=true&sort_order=asc&limit=6`, key!);
     const v = (j.release_dates ?? []).map((d) => d.date).filter((d) => d >= today);
@@ -187,9 +210,10 @@ export function createDetailService(o: {
         if (s) base.fredMeta = { title: s.title, units: s.units, seasonalAdjustment: s.seasonal_adjustment, lastUpdated: s.last_updated, observationStart: s.observation_start, observationEnd: s.observation_end };
       } catch (e) { warnings.push(`FRED series metadata unavailable: ${clean(e)}`); }
     } else {
+      const cached = def.indicator ? o.fromSnapshot?.(def.id) : undefined;
       const adapter = def.adapter === "fiscaldata" ? fiscaldataAdapter({ years: 40, full: true }) : o.adapters.get(def.adapter);
-      if (!adapter) throw new Error(`No adapter "${def.adapter}" is mounted for ${def.id}.`);
-      const [a]: AdapterSeries[] = await adapter.fetchSeries([def], t);
+      if (!cached && !adapter) throw new Error(`No adapter "${def.adapter}" is mounted for ${def.id}.`);
+      const [a]: AdapterSeries[] = cached ? [cached] : await adapter!.fetchSeries([def], t);
       if (!a?.ok) throw new Error(a?.error ?? "The source returned nothing.");
       base.history = a.observations; base.sourceUrl = a.sourceUrl; base.refreshedAt = a.refreshedAt; base.provider = a.provider;
       if (def.adapter === "fiscaldata" && def.code === "tga") warnings.push("The Daily Treasury Statement renamed its TGA line in April 2022; earlier days are not mapped, so this history starts then.");

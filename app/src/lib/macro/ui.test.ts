@@ -58,3 +58,15 @@ describe("Ministry of Finance JGB CSV", () => {
     expect(() => parseMofCsv(csv, "50Y")).toThrow(/no "50Y" column/);
   });
 });
+
+import { ordinal } from "../../functions/macro/DetailPanel";
+import { FED_POLICY_FEED } from "./explainBase";
+describe("display details found in the live check", () => {
+  it("percentiles use correct English ordinals", () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 53, 63, 73, 100, 101, 112].map(ordinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "53rd", "63rd", "73rd", "100th", "101st", "112th"]);
+  });
+  it("the SEP match takes the projections press release, not a speech that mentions the SEP", () => {
+    expect(FED_POLICY_FEED.match.test("Federal Reserve Board and Federal Open Market Committee release economic projections from the September 15-16 FOMC meeting")).toBe(true);
+    expect(FED_POLICY_FEED.match.test("Waller, The Signaling Value of the Summary of Economic Projections")).toBe(false);
+  });
+});

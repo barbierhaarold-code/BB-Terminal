@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  blsAdapter, bisAdapter, bocAdapter, boeAdapter, eurostatAdapter, fredAdapter, imfAdapter, jpstatAdapter, parseCsv, scrub, snbAdapter, statcanAdapter,
+  blsAdapter, bisAdapter, bocAdapter, boeAdapter, eurostatAdapter, fredAdapter, imfAdapter, jpstatAdapter, parseCsv, scrub, snbAdapter, statcanAdapter, resetFredPause, fredGet,
 } from "../../../vite-plugins/macroDirect";
 import { AdapterError, RateLimitedError } from "../../../vite-plugins/macroAdapters";
 import { SERIES_BY_ID } from "./config";
@@ -24,7 +24,7 @@ function mockFetch(handler: (url: string, init?: RequestInit) => Response | Prom
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => { calls.push({ url: String(url), init }); return handler(String(url), init); });
   return calls;
 }
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllGlobals(); resetFredPause(); });
 
 describe("helpers", () => {
   it("scrub removes every secret, and ignores empty/short ones", () => {
@@ -116,6 +116,13 @@ describe("FRED adapter", () => {
     expect(r.refreshedAt).toBe("2026-08-17T00:00:00.000Z");
     expect(calls[0].url).toMatch(/realtime_start=\d{4}-\d{2}-\d{2}&realtime_end=9999-12-31/);
     expect(JSON.stringify(r)).not.toContain(KEY);
+  });
+  it("a refusal (HTTP 403 Access Denied from FRED's CDN) pauses every FRED request instead of adding load, and fails the adapter as a whole", async () => {
+    const calls = mockFetch(() => reply("<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD></HTML>", { status: 403 }));
+    await expect(fredAdapter(KEY).fetchSeries([def("nz.unemp"), def("ch.unemp")], NOW)).rejects.toMatchObject({ kind: "blocked" });
+    const before = calls.length;
+    await expect(fredGet("series?series_id=X", KEY)).rejects.toThrow(/paused until/);
+    expect(calls.length).toBe(before); // no request while paused
   });
   it("a rejected key is reported without ever containing the key", async () => {
     mockFetch(() => reply({ error_code: 400, error_message: `Bad Request. The value for variable api_key is not registered: ${KEY}.` }, { status: 400 }));

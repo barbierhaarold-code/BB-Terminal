@@ -209,11 +209,32 @@ export async function fredSlot(now: () => number = Date.now, sleep = (ms: number
   }
 }
 
+/** After FRED refuses requests (HTTP 403 Access Denied from its CDN, or 429), every FRED call pauses this long instead of adding load. */
+export const FRED_PAUSE_MS = 10 * 60_000;
+let fredPausedUntil = 0;
+let fredPauseCause = "";
+/** Test seam. */
+export function resetFredPause() { fredPausedUntil = 0; fredPauseCause = ""; fredStamps.length = 0; }
+
 /** One FRED API call through the shared budget. Throws with a scrubbed, real cause. */
-export async function fredGet<T>(path: string, key: string): Promise<T> {
+export async function fredGet<T>(path: string, key: string, now: () => number = Date.now): Promise<T> {
+  if (now() < fredPausedUntil) {
+    throw new AdapterError(`FRED refused this terminal's requests (${fredPauseCause}); FRED requests are paused until ${new Date(fredPausedUntil).toISOString().slice(11, 16)} UTC so as not to add load. Not worked around.`, "blocked");
+  }
   await fredSlot();
   const sep = path.includes("?") ? "&" : "?";
-  const j = await httpJson<T & { error_code?: number; error_message?: string }>(`https://api.stlouisfed.org/fred/${path}${sep}api_key=${encodeURIComponent(key)}&file_type=json`, { label: "FRED", secrets: [key] });
+  let j: T & { error_code?: number; error_message?: string };
+  try {
+    j = await httpJson<T & { error_code?: number; error_message?: string }>(`https://api.stlouisfed.org/fred/${path}${sep}api_key=${encodeURIComponent(key)}&file_type=json`, { label: "FRED", secrets: [key] });
+  } catch (err) {
+    const m = String((err as Error).message);
+    if (err instanceof RateLimitedError || /HTTP 403/.test(m)) {
+      fredPausedUntil = now() + FRED_PAUSE_MS;
+      fredPauseCause = err instanceof RateLimitedError ? "HTTP 429 Too Many Requests" : "HTTP 403 Access Denied";
+      throw new AdapterError(`FRED refused this terminal's requests (${fredPauseCause}); FRED requests are paused for ${FRED_PAUSE_MS / 60_000} minutes so as not to add load. Not worked around.`, "blocked");
+    }
+    throw err;
+  }
   if (j.error_message) throw new Error(`FRED: ${snippet(scrub(j.error_message, [key]))}`);
   return j;
 }
@@ -249,13 +270,14 @@ export function fredAdapter(key?: string, o: FredOptions = {}): MacroAdapter {
           const published = lastValid?.realtime_start && lastValid.realtime_start !== rtStart ? `${lastValid.realtime_start}T00:00:00.000Z` : null;
           return okSeries(def, toObservations(def, raw.map((r) => [r.date, r.value]), nowMs), nowMs, { sourceUrl, refreshedAt: published }, "FRED returned the series but it has no values.");
         } catch (err) {
-          if (err instanceof RateLimitedError) throw err;
+          if (err instanceof RateLimitedError || (err instanceof AdapterError && err.kind === "blocked")) throw err;
           const m = scrub(String((err as Error).message), [key]);
           const rejected = /api[_ ]key/i.test(m) && /(not|invalid)/i.test(m);
           return failedSeries(def, nowMs, rejected ? `FRED rejected the API key (${snippet(m, 120)}). Check FRED_API_KEY in app/.env.` : m, rejected ? "key_rejected" : "error", sourceUrl);
         }
       });
-      const limited = settled.find((r) => r.status === "rejected" && r.reason instanceof RateLimitedError);
+      // A refusal (429, or 403 from FRED's CDN) fails the adapter as a whole, so the plugin serves older data marked STALE.
+      const limited = settled.find((r) => r.status === "rejected" && (r.reason instanceof RateLimitedError || (r.reason instanceof AdapterError && r.reason.kind === "blocked")));
       if (limited && limited.status === "rejected") throw limited.reason;
       return settled.map((r, i) => (r.status === "fulfilled" ? r.value : failedSeries(defs[i], nowMs, String((r.reason as Error)?.message ?? r.reason))));
     },

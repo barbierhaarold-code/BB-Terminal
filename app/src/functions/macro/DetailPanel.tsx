@@ -285,6 +285,12 @@ function Chart({ def, main, unit, dec, overlay, overlayDef, recessions, onHover 
 
 // ───────────── c. statistics ─────────────
 
+/** 1st, 2nd, 3rd, 4th … 11th, 12th, 13th … 21st, 53rd, 100th */
+export function ordinal(n: number): string {
+  const t = n % 100, u = n % 10;
+  return `${n}${t >= 11 && t <= 13 ? "th" : u === 1 ? "st" : u === 2 ? "nd" : u === 3 ? "rd" : "th"}`;
+}
+
 function StatsSection({ def, headline }: { def: SeriesDef; headline: Observation[] }) {
   const rows = useMemo(() => [5, 10, null].map((y) => windowStats(headline, y)).filter((x): x is WindowStats => !!x), [headline]);
   return (
@@ -297,7 +303,7 @@ function StatsSection({ def, headline }: { def: SeriesDef; headline: Observation
               <tr key={r.window} className="border-t border-term-borderSoft">
                 <td className="pr-2 py-0.5">{r.window} <span className="text-term-muted">({periodLabel(r.from)} – {periodLabel(r.to)})</span></td>
                 <td className="pr-2">{r.n}</td>
-                <td className="pr-2 text-right">{r.percentile.toFixed(0)}th</td>
+                <td className="pr-2 text-right">{ordinal(Math.round(r.percentile))}</td>
                 <td className="pr-2 text-right">{fmtHeadline(def, r.mean)}</td>
                 <td className="pr-2 text-right">{r.z == null ? "n/a" : r.z.toFixed(2)}</td>
                 <td className="pr-2">{fmtHeadline(def, r.min.value)} ({periodLabel(r.min.period)})</td>

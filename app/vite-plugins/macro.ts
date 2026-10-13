@@ -38,7 +38,7 @@ const DEFAULT_ADAPTER_TTL_MS = 6 * 60 * 60_000;
 const ALL_FAILED_RETRY_MS = 15 * 60_000;
 const STALE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
 const FAILURE_COOLDOWN_MS = 5_000;
-/** Observations kept per series in the US catalogue answer: latest, previous, y/y base and a 48-point sparkline (the detail view fetches the full history). */
+/** Observations sent per series to the page (overview and US tables): latest, previous, y/y base and a 48-point sparkline. Detail views fetch the full history. */
 const US_TRIM: Record<SeriesDef["frequency"], number> = { daily: 60, weekly: 110, monthly: 64, quarterly: 24 };
 
 interface Entry { snapshot: MacroSnapshot; storedAt: number; expires: number }
@@ -169,7 +169,9 @@ export function macroProxyPlugin(
       const snapshot: MacroSnapshot = { ...c.snapshot, cacheState: "STALE", warnings: [`The data source is unreachable (${cause}). Showing data retrieved at ${c.snapshot.fetchedAt}.`, ...c.snapshot.warnings] };
       return { entry: { ...c, snapshot }, cacheState: "STALE" as const };
     }
-    return { load, reset(clear: boolean) { lastFailure = null; if (clear) { cache = null; adapterCache.clear(); } } };
+    /** The cached series for an id from the last assembled snapshot, without any upstream request (undefined if none). */
+    const peek = (id: string) => cache?.snapshot.series.find((x) => x.id === id && x.ok);
+    return { load, peek, reset(clear: boolean) { lastFailure = null; if (clear) { cache = null; adapterCache.clear(); } } };
   }
 
   const main = makeLoader(SERIES, byId);
@@ -185,7 +187,9 @@ export function macroProxyPlugin(
     us.load().catch(() => { /* the US section shows its own error state when opened */ });
     detail.prewarm();
   };
-  const detail = createDetailService({ defs: ALL_BY_ID, adapters: byId, fredKey: env.FRED_API_KEY });
+  // Overview series that are not on FRED reuse the overview snapshot's copy (same provider data, same history window), so opening
+  // their detail view costs no upstream request. The US catalogue is trimmed for the table, so it is not reused.
+  const detail = createDetailService({ defs: ALL_BY_ID, adapters: byId, fredKey: env.FRED_API_KEY, fromSnapshot: (id) => main.peek(id) });
 
   async function handle(req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) {
     const url = new URL(req.url ?? "", "http://x");
@@ -232,7 +236,13 @@ export function macroProxyPlugin(
       if (route === "snapshot") prewarmUs();
       res.setHeader("x-bbterminal-cache", cacheState);
       res.setHeader("cache-control", "no-store");
-      sendJson(res, { results: { ...entry.snapshot, cacheState } });
+      // The page only needs what a row shows (latest, previous, y/y base, 48-point sparkline); detail views fetch full history.
+      // The server keeps the untrimmed copy, which detail views of non-FRED series reuse.
+      const series = route === "snapshot" ? entry.snapshot.series.map((x) => {
+        const f = SERIES.find((d) => d.id === x.id)?.frequency;
+        return f && x.observations.length > US_TRIM[f] ? { ...x, observations: x.observations.slice(-US_TRIM[f]) } : x;
+      }) : entry.snapshot.series;
+      sendJson(res, { results: { ...entry.snapshot, series, cacheState } });
     } catch (err) {
       if (err instanceof RateLimitedError) res.setHeader("retry-after", String(Math.ceil(err.retryAfterMs / 1000)));
       sendJson(res, { results: null, warnings: [{ message: scrub(errMessage(err), secrets) }] }, 502);

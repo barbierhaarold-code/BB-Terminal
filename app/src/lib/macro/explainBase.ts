@@ -73,7 +73,7 @@ export const GLOSSARY: Record<GlossaryId, { term: string; definition: string }> 
 
 // ───────────── shared US pieces ─────────────
 
-export const FED_POLICY_FEED = { institutions: ["Federal Reserve"], match: /FOMC statement|Minutes of the Federal Open Market Committee|economic projections|Semiannual Monetary Policy Report/i };
+export const FED_POLICY_FEED = { institutions: ["Federal Reserve"], match: /FOMC statement|Minutes of the Federal Open Market Committee|release economic projections|Semiannual Monetary Policy Report/i };
 export const BLS_CAL = { url: "https://www.bls.gov/schedule/news_release/", label: "BLS release calendar" };
 export const BEA_CAL = { url: "https://www.bea.gov/news/schedule", label: "BEA release schedule" };
 export const CENSUS_CAL = { url: "https://www.census.gov/economic-indicators/calendar-listview.html", label: "Census Bureau economic indicator calendar" };

@@ -64,7 +64,7 @@ export const US_EXPLAIN_A: Record<string, Explanation> = {
       { title: "BEA: PCE price index", url: "https://www.bea.gov/data/personal-consumption-expenditures-price-index", kind: "data" },
       { title: "Federal Reserve: Statement on Longer-Run Goals and Monetary Policy Strategy", url: "https://www.federalreserve.gov/monetarypolicy/guide-to-changes-in-statement-on-longer-run-goals-monetary-policy-strategy.htm", kind: "central bank" },
     ],
-    feed: { institutions: ["U.S. Bureau of Economic Analysis", "Federal Reserve"], match: /Personal Income and Outlays|FOMC statement|economic projections/i }, calendar: BEA_CAL,
+    feed: { institutions: ["U.S. Bureau of Economic Analysis", "Federal Reserve"], match: /Personal Income and Outlays|FOMC statement|release economic projections/i }, calendar: BEA_CAL,
   },
   "us.pcecore": {
     measures: "The PCE price index excluding food and energy: the measure most often cited by Federal Reserve officials for underlying inflation.",
@@ -83,7 +83,7 @@ export const US_EXPLAIN_A: Record<string, Explanation> = {
       { title: "BEA: PCE price index", url: "https://www.bea.gov/data/personal-consumption-expenditures-price-index", kind: "data" },
       FOMC_PAGE,
     ],
-    feed: { institutions: ["U.S. Bureau of Economic Analysis", "Federal Reserve"], match: /Personal Income and Outlays|economic projections/i }, calendar: BEA_CAL,
+    feed: { institutions: ["U.S. Bureau of Economic Analysis", "Federal Reserve"], match: /Personal Income and Outlays|release economic projections/i }, calendar: BEA_CAL,
   },
   "us.ppi": {
     measures: "Prices received by domestic producers for their output. 'Final demand' covers goods, services and construction sold to final users; the core variant excludes foods and energy.",

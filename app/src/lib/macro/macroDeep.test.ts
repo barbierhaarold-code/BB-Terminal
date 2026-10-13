@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fiscaldataAdapter, xlsxColumn } from "../../../vite-plugins/macroDirect";
+import { fiscaldataAdapter, resetFredPause, xlsxColumn } from "../../../vite-plugins/macroDirect";
 import { createDetailService } from "../../../vite-plugins/macroDetail";
 import { ALL_BY_ID, ALL_SERIES } from "./catalog";
 import { US_SERIES, US_GAPS } from "./usCatalog";
@@ -12,7 +12,7 @@ function mockFetch(handler: (url: string) => Response | Promise<Response>) {
   vi.stubGlobal("fetch", async (url: string) => { calls.push(String(url)); return handler(String(url)); });
   return calls;
 }
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => { vi.unstubAllGlobals(); resetFredPause(); });
 
 /** Minimal STORED (uncompressed) zip, enough for readZip. */
 function zip(files: Record<string, string>): Buffer {
@@ -131,5 +131,32 @@ describe("detail service", () => {
   it("a missing FRED key is an explicit error, never an empty panel", async () => {
     const svc = createDetailService({ defs: ALL_BY_ID, adapters: new Map(), fredKey: undefined, now: () => NOW });
     await expect(svc.get("us.cpi")).rejects.toThrow(/FRED_API_KEY is not set/);
+  });
+});
+
+describe("detail service reuses the overview snapshot", () => {
+  it("a non-FRED overview series is served from the snapshot copy with no upstream request", async () => {
+    const calls = mockFetch(() => reply({}));
+    const snap = { id: "uk.cpi", ok: true, observations: [{ period: "2026-07", value: 3.0 }, { period: "2026-08", value: 3.1 }], provider: "Office for National Statistics", sourceUrl: "https://db.nomics.world/ONS/MM23/D7G7.M", refreshedAt: "2026-09-30T00:00:00.000Z", retrievedAt: "2026-10-13T00:00:00.000Z" };
+    const svc = createDetailService({ defs: ALL_BY_ID, adapters: new Map(), fredKey: KEY, now: () => NOW, fromSnapshot: (id) => (id === "uk.cpi" ? snap : undefined) });
+    const d = (await svc.get("uk.cpi")).detail;
+    expect(d.history.at(-1)).toEqual({ period: "2026-08", value: 3.1 });
+    expect(d.revisions).toMatchObject({ available: false });
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("US release calendar budget", () => {
+  it("reads every release's next date from ONE paged FRED call, not one request per release", async () => {
+    const calls = mockFetch((url) => url.includes("/fred/releases/dates")
+      ? reply({ release_dates: [{ release_id: 10, date: "2026-10-14" }, { release_id: 50, date: "2026-11-06" }, { release_id: 10, date: "2026-11-10" }] })
+      : reply({ release_dates: [] }));
+    const svc = createDetailService({ defs: ALL_BY_ID, adapters: new Map(), fredKey: KEY, now: () => NOW });
+    const rows = await svc.calendar();
+    expect(rows[0]).toMatchObject({ releaseId: 10, next: "2026-10-14" });
+    expect(rows.find((r) => r.releaseId === 50)?.next).toBe("2026-11-06");
+    expect(calls.filter((u) => u.includes("/fred/releases/dates"))).toHaveLength(1);
+    // releases absent from the window fall back to a per-release request (at most once each, cached)
+    expect(calls.filter((u) => u.includes("/fred/release/dates")).length).toBe(rows.length - 2);
   });
 });
