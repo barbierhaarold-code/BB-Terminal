@@ -218,6 +218,13 @@ export function macroProxyPlugin(
       }
       return;
     }
+    if (route === "calendar") {
+      try {
+        res.setHeader("cache-control", "no-store");
+        sendJson(res, { results: { fetchedAt: new Date().toISOString(), source: "FRED release calendar (dates from the agencies' published schedules)", releases: await detail.calendar() } });
+      } catch (err) { sendJson(res, { results: null, warnings: [{ message: scrub(errMessage(err), secrets) }] }, 502); }
+      return;
+    }
     if (route !== "snapshot" && route !== "us") { sendJson(res, { results: null, warnings: [{ message: `Unknown macro route "${route}". Use /macro-proxy/snapshot, /macro-proxy/us or /macro-proxy/series?id=….` }] }, 404); return; }
 
     try {

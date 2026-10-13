@@ -26,10 +26,39 @@ const REACTION_FROM = "2010-01-01";
 const VINTAGE_FROM = "2008-01-01";
 const OPENBB = (process.env.OPENBB_URL?.replace(/\/+$/, "") || "http://127.0.0.1:6900");
 
+/** Headline US releases whose next dates come from FRED's release calendar (ids verified 2026-10-13). */
+export const US_RELEASES: Array<{ id: number; name: string; series: string[] }> = [
+  { id: 50, name: "Employment Situation (payrolls, unemployment, earnings)", series: ["us.payrolls", "us.unemp", "us.ahe"] },
+  { id: 10, name: "Consumer Price Index", series: ["us.cpi", "us.core"] },
+  { id: 46, name: "Producer Price Index", series: ["us.ppi"] },
+  { id: 53, name: "Gross Domestic Product", series: ["us.gdp"] },
+  { id: 54, name: "Personal Income and Outlays (PCE prices)", series: ["us.pce", "us.pcecore"] },
+  { id: 9, name: "Advance Retail Sales", series: ["us.retail"] },
+  { id: 180, name: "Unemployment Insurance Weekly Claims", series: ["us.claims"] },
+  { id: 192, name: "Job Openings and Labor Turnover Survey", series: ["us.jolts"] },
+  { id: 11, name: "Employment Cost Index", series: ["us.eci"] },
+  { id: 188, name: "Import and Export Price Indexes", series: ["us.importpx"] },
+  { id: 13, name: "G.17 Industrial Production and Capacity Utilization", series: ["us.indpro"] },
+  { id: 95, name: "Manufacturers' Shipments, Inventories, and Orders", series: ["us.durables"] },
+  { id: 27, name: "New Residential Construction", series: ["us.starts"] },
+  { id: 97, name: "New Residential Sales", series: ["us.newhomes"] },
+  { id: 51, name: "U.S. International Trade in Goods and Services", series: ["us.trade"] },
+  { id: 20, name: "H.4.1 Factors Affecting Reserve Balances", series: ["us.fedassets"] },
+  { id: 21, name: "H.6 Money Stock Measures", series: ["us.m2"] },
+  { id: 14, name: "G.19 Consumer Credit", series: ["us.conscredit"] },
+  { id: 363, name: "Monthly Treasury Statement", series: ["us.deficit"] },
+  { id: 321, name: "Empire State Manufacturing Survey", series: ["us.empire"] },
+  { id: 351, name: "Philadelphia Fed Manufacturing Business Outlook Survey", series: ["us.philly"] },
+];
+
+export interface UsCalendarRow { releaseId: number; name: string; series: string[]; next: string | null; error?: string }
+
 export interface DetailService {
   get(id: string): Promise<{ detail: MacroDetail; cacheState: "HIT" | "MISS" }>;
   /** loads the shared once-a-day data (recession dates, reaction market series) in the background */
   prewarm(): void;
+  /** next scheduled date of each headline US release (FRED release calendar; cached 12 h per release) */
+  calendar(): Promise<UsCalendarRow[]>;
 }
 
 interface Cached<T> { value: T; expires: number }
@@ -242,6 +271,15 @@ export function createDetailService(o: {
 
   return {
     prewarm() { if (key) sharedData(now()).catch(() => undefined); },
+    async calendar() {
+      if (!key) throw new Error("API key missing: FRED_API_KEY is not set. Add it to app/.env and restart the dev server.");
+      const t = now();
+      const rows = await Promise.all(US_RELEASES.map(async (r): Promise<UsCalendarRow> => {
+        try { return { releaseId: r.id, name: r.name, series: r.series, next: (await datesOf(r.id, t))[0] ?? null }; }
+        catch (e) { return { releaseId: r.id, name: r.name, series: r.series, next: null, error: clean(e) }; }
+      }));
+      return rows.sort((a, b) => (a.next ?? "9999").localeCompare(b.next ?? "9999"));
+    },
     async get(id) {
       const def = o.defs[id];
       if (!def) throw Object.assign(new Error(`Unknown indicator "${id}".`), { status: 404 });

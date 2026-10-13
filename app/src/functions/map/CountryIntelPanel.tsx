@@ -1,6 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { fetchCountryProfile, TRAVEL_LEVEL_COLOR, type CountryProfile, type WbPoint } from "./countryIntel";
+import { writeMacroUrl } from "@/lib/macro/urlState";
+import { useWorkspace } from "@/store/workspaceStore";
+
+/** Countries that are Macro Hub economies on their own (euro-area members are covered only as an aggregate). */
+const MACRO_ECONOMY: Record<string, string> = { USA: "us", GBR: "uk", JPN: "jp", CAN: "ca", AUS: "au", NZL: "nz", CHE: "ch" };
+
+function MacroHubLinks({ iso3 }: { iso3: string }) {
+  const e = MACRO_ECONOMY[iso3];
+  if (!e) return null;
+  const go = (id: string) => { writeMacroUrl({ id, transform: null, range: null, overlay: null }); useWorkspace.getState().openTab("MACRO"); };
+  return (
+    <div className="text-[10px] text-term-muted pt-1" data-testid="map-macro-links">
+      Official monthly/quarterly series in the Macro Hub:{" "}
+      {([["gdp", "GDP growth"], ["cpi", "CPI"], ["unemp", "Unemployment"]] as const).map(([k, label], i) => (
+        <span key={k}>{i > 0 && " · "}<button onClick={() => go(`${e}.${k}`)} className="underline hover:text-term-amber">{label}</button></span>
+      ))}
+    </div>
+  );
+}
 
 const fmtUsd = (n: number) =>
   n >= 1e12 ? `$${(n / 1e12).toFixed(2)}T` : n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : `$${(n / 1e6).toFixed(0)}M`;
@@ -52,6 +71,7 @@ function Profile({ p }: { p: CountryProfile }) {
             <Row label="Unemployment" v={p.macro.data.unemployment} f={(n) => `${n.toFixed(1)}%`} />
             <Row label="Population" v={p.macro.data.population} f={fmtPop} />
             <Row label="Military spend" v={p.macro.data.militaryPctGdp} f={(n) => `${n.toFixed(1)}% GDP`} />
+            <MacroHubLinks iso3={p.iso3} />
           </>
         ) : <SectionState s={p.macro} />}
       </Block>

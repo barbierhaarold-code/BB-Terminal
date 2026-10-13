@@ -29,10 +29,11 @@ import { toYmd } from "@/lib/weekview";
 import type { AnthropicTool } from "@/lib/copilotClient";
 import { getCotSnapshot, cotContract, cotContractSummary, cotSnapshotMeta, isKnownCotKey } from "@/lib/cot";
 import { COT_CONTRACTS } from "@/lib/cotContracts";
-import { getMacroSnapshot } from "@/lib/macro/client";
+import { getMacroDetail, getMacroSnapshot } from "@/lib/macro/client";
 import { buildViews } from "@/lib/macro/math";
 import { macroSummary } from "@/lib/macro/summary";
 import { ECONOMIES } from "@/lib/macro/config";
+import { indicatorSummary, resolveIndicator } from "@/lib/macro/indicatorTool";
 import { fetchHolders, fetchHoldStatus, fetchManager, getManagers } from "@/lib/holdings/client";
 import { findManager, summariseHolders, summariseManager, summariseManagerList } from "@/lib/holdings/summary";
 import { getPolicySnapshot } from "@/lib/policy/client";
@@ -60,6 +61,18 @@ export const COPILOT_TOOLS: AnthropicTool[] = [
           enum: COT_CONTRACTS.map((c) => c.key),
           description: "Optional contract key: eur, gbp, jpy, aud, cad, chf, nzd, dxy, es, nq, btc, gold, silver, wti. Omit for the overview of all contracts.",
         },
+      },
+    },
+  },
+  {
+    name: "get_macro_indicator",
+    description: "Macro Hub detail for ONE indicator (READ-ONLY; same numbers as its detail view). Covers every Macro Hub series: the G8 overview (policy rate, CPI, core CPI, unemployment, GDP growth, 10Y yield) and the US deep coverage (CPI m/m, PCE, PPI, wages, ECI, NY Fed inflation expectations, breakevens, payrolls, claims, JOLTS, GDP components, GDPNow, retail sales, industrial production, housing, trade, M2, Fed balance sheet and reserves, bank and consumer credit, delinquencies, fed funds range, EFFR, SOFR, Treasury yields, real yield, term premium, curve spreads, debt, TGA, deficit, TIC, current account, 10Y auctions, regional Fed surveys). Pass `id` (e.g. us.cpi, us.payrolls, ea.core) or `query` (free text, optionally with `economy`). Returns latest and previous value with observation periods, change, source (agency, series id, URL, attribution), publication date at source, next release date where machine-readable, a history summary (percentile, z-score, min/max over 5Y/10Y/all), revisions (ALFRED, where tracked), measured release-day market reactions with n and 95% CI (or why they are omitted), and the static explanation id and text. If several indicators match, it returns candidates: ask or pick one. Descriptive only, never a forecast or signal; always state the observation period; relay 'not significant' plainly.",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Indicator id, e.g. us.cpi, us.core, us.pcecore, us.payrolls, us.y2, ea.cpi, uk.policy." },
+        query: { type: "string", description: "Free-text search when the id is unknown, e.g. 'core PCE', 'jobless claims', 'gilt yield'." },
+        economy: { type: "string", enum: ["US", "EA", "UK", "JP", "CA", "AU", "NZ", "CH"], description: "Optional: restrict a query to one economy." },
       },
     },
   },
@@ -657,6 +670,17 @@ async function toolMacroSnapshot(input: { economy?: unknown }) {
 }
 
 // ────────────────────────────────────────────────────────────
+// get_macro_indicator — wraps lib/macro (the detail view's own cached payload)
+// ────────────────────────────────────────────────────────────
+export async function toolMacroIndicator(input: { id?: unknown; query?: unknown; economy?: unknown }) {
+  const r = resolveIndicator(input);
+  if ("error" in r) return { available: false, error: r.error };
+  if ("candidates" in r) return { available: false, ambiguous: true, candidates: r.candidates, error: "Several indicators match; call again with one of these ids." };
+  try { return indicatorSummary(r.def, await getMacroDetail(r.def.id), Date.now()); }
+  catch (e) { return { available: false, id: r.def.id, error: (e as Error).message }; }
+}
+
+// ────────────────────────────────────────────────────────────
 // get_institutional_holdings — wraps lib/holdings (the HOLD page's own server payloads)
 // ────────────────────────────────────────────────────────────
 async function toolInstitutionalHoldings(input: { manager?: unknown; ticker?: unknown; limit?: unknown }) {
@@ -703,6 +727,7 @@ export async function runCopilotTool(name: string, input: Record<string, unknown
     case "get_scalper_snapshot": return toolScalperSnapshot();
     case "get_cot_positioning": return toolCotPositioning(input);
     case "get_macro_snapshot": return toolMacroSnapshot(input);
+    case "get_macro_indicator": return toolMacroIndicator(input);
     case "get_institutional_holdings": return toolInstitutionalHoldings(input);
     case "get_policy_feed": return toolPolicyFeed(input as PolicyToolInput);
     case "get_vol_and_strength": return toolVolAndStrength(input);

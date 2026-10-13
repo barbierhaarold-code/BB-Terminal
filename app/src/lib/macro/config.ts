@@ -317,3 +317,49 @@ export const STALE_RULE_TEXT =
   "Each series has an expected lag: the worst-case normal age of its latest observation (period length plus publication delay). "
   + "Older than that, the row is flagged STALE and stays in the table. Older than twice the lag, it leaves the table and appears under Coverage gaps. "
   + "Step-series policy rates that are mirrored by DBnomics are judged by when the aggregator last refreshed them rather than by the date of the last decision; policy rates fetched directly are daily series, judged by the date of their latest observation.";
+
+// ───────────── Beyond the six overview indicators: what is still missing per economy, and why ─────────────
+// (The United States has its own deep coverage; its missing series are listed in usCatalog.ts US_GAPS.)
+
+const NOT_WIRED = (sources: string) => `Free official sources exist (${sources}) but were not wired or evaluated in this step, so nothing is shown rather than an unverified series.`;
+const NO_VINTAGES = "Revisions are not tracked: the APIs used here serve only the latest vintage of these series.";
+const NO_REACTION = "Release-day market reactions are not measured: no free first-release (vintage) archive with release dates is used for this economy, and the measured market series are US ones.";
+
+export const ECONOMY_EXTRA_GAPS: Record<Exclude<Economy, "US">, { name: string; reason: string }[]> = {
+  EA: [
+    { name: "Manufacturing and services PMIs (HCOB)", reason: "Proprietary (S&P Global); paid. Not substituted." },
+    { name: "Wages, retail trade, industrial production, M3, bank lending, ECB balance sheet", reason: NOT_WIRED("Eurostat dissemination API, ECB Data Portal") },
+    { name: "Revisions and market reactions", reason: `${NO_VINTAGES} ${NO_REACTION}` },
+  ],
+  UK: [
+    { name: "Manufacturing and services PMIs", reason: "Proprietary (S&P Global); paid. Not substituted." },
+    { name: "Wages, retail sales, monthly GDP, money and credit", reason: NOT_WIRED("ONS time-series via DBnomics, Bank of England Interactive Statistical Database") },
+    { name: "Revisions and market reactions", reason: `${NO_VINTAGES} ${NO_REACTION}` },
+  ],
+  JP: [
+    { name: "Manufacturing and services PMIs (au Jibun Bank)", reason: "Proprietary (S&P Global); paid. Not substituted." },
+    { name: "Tankan survey, wages, industrial production, BoJ balance sheet", reason: NOT_WIRED("Bank of Japan time-series data, Statistics Dashboard API") },
+    { name: "Revisions and market reactions", reason: `${NO_VINTAGES.replace("these series", "these series (Japan GDP comes through FRED, whose vintages are FRED's republication dates, not the Cabinet Office's)")} ${NO_REACTION}` },
+  ],
+  CA: [
+    { name: "Manufacturing PMI", reason: "Proprietary (S&P Global); paid. Not substituted." },
+    { name: "Wages, retail sales, monthly GDP, housing starts, money supply", reason: NOT_WIRED("Statistics Canada Web Data Service, Bank of Canada Valet") },
+    { name: "Revisions and market reactions", reason: `${NO_VINTAGES} ${NO_REACTION}` },
+  ],
+  AU: [
+    { name: "Manufacturing and services PMIs", reason: "Proprietary (S&P Global); paid. Not substituted." },
+    { name: "Wage Price Index, retail trade, monthly CPI, credit aggregates", reason: NOT_WIRED("ABS Data API, RBA statistical tables") },
+    { name: "Revisions and market reactions", reason: `${NO_VINTAGES} ${NO_REACTION}` },
+  ],
+  NZ: [
+    { name: "BusinessNZ PMI and PSI", reason: "Proprietary (BusinessNZ with BNZ); not free to redistribute. Not substituted." },
+    { name: "Core CPI, GDP, wages, daily bond yields", reason: "Stats NZ's API answered HTTP 502 and the RBNZ file server HTTP 403 when checked (not worked around); see the overview gaps for core CPI and GDP." },
+    { name: "Revisions and market reactions", reason: `${NO_VINTAGES} ${NO_REACTION}` },
+  ],
+  CH: [
+    { name: "procure.ch PMI", reason: "Proprietary (procure.ch with UBS); not free to redistribute. Not substituted." },
+    { name: "Retail sales, SNB balance sheet and FX reserves, daily bond yields", reason: `${NOT_WIRED("FSO, SNB data portal")} The SNB's bond-yield cube had not been updated since 2025 when checked, so the 10-year row uses the OECD monthly average.` },
+    { name: "KOF Economic Barometer", reason: "Published by the KOF Swiss Economic Institute (ETH Zurich), not an official statistics agency; its reuse terms were not checked in this step, so it is not shown." },
+    { name: "Revisions and market reactions", reason: `${NO_VINTAGES} ${NO_REACTION}` },
+  ],
+};
