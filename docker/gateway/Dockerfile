@@ -8,7 +8,11 @@ RUN npm ci
 COPY app/ ./
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_PUBLISHABLE_KEY
+# Where TRACK/PLAN data lives: "local" (browser localStorage, default) or "server"
+# (per-user Supabase tables). Server mode is opt-in; see DEPLOY.md section 11.
+ARG VITE_USER_DATA_BACKEND=local
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
+ENV VITE_USER_DATA_BACKEND=$VITE_USER_DATA_BACKEND
 RUN npm run build && npm run build:server
 
 FROM node:22-alpine
