@@ -173,7 +173,7 @@ export function buildView<D extends SeriesDef = MatrixDef>(def: D, a: AdapterSer
   const { latest, previous } = latestTwo(pts);
   if (!latest) return { ...base, error: def.transform === "yoy" ? "Not enough history to compute a year-on-year change." : def.transform !== "none" ? "Not enough history to compute the change." : "The source returned no usable values." };
   return {
-    ...base, notice: a.notice, latest, previous, change: changeOf(latest, previous), points: pts,
+    ...base, notice: a.notice, staleCache: a.staleCache, latest, previous, change: changeOf(latest, previous), points: pts,
     freshness: assessFreshness(def, latest.period, a.refreshedAt, now),
   };
 }
@@ -206,6 +206,8 @@ export interface MacroViews {
   accessProblems: AccessProblem[];
   /** series that ARE shown but arrived through a fallback route (e.g. keyless BLS v1 because a key is missing/rejected): a small non-blocking note */
   notices: AccessProblem[];
+  /** series not loaded YET (no cached copy, source past the deadline, request still running): not an error, not a key problem */
+  pending: { seriesIds: string[]; labels: string[] } | null;
 }
 
 export interface AccessProblem { kind: "key_missing" | "key_rejected" | "blocked"; message: string; seriesIds: string[]; labels: string[] }
@@ -234,7 +236,7 @@ export function buildViews(snap: Pick<MacroSnapshot, "series"> | undefined, now:
   const realRates = ECONOMIES.map((e) => realPolicyRate(e.id, cell.get(`${e.id}|policy_rate`), cell.get(`${e.id}|cpi_yoy`)));
   const problems = new Map<string, AccessProblem>();
   for (const v of all) {
-    if (!v.error || !v.errorKind || v.errorKind === "error") continue;
+    if (!v.error || !v.errorKind || v.errorKind === "error" || v.errorKind === "pending") continue;
     const k = `${v.errorKind}|${v.error}`;
     const p = problems.get(k) ?? { kind: v.errorKind, message: v.error, seriesIds: [], labels: [] };
     p.seriesIds.push(v.def.id); p.labels.push(`${ECONOMY_NAME_SHORT[v.def.economy]} ${v.def.label}`);
@@ -248,7 +250,11 @@ export function buildViews(snap: Pick<MacroSnapshot, "series"> | undefined, now:
     p.seriesIds.push(v.def.id); p.labels.push(`${ECONOMY_NAME_SHORT[v.def.economy]} ${v.def.label}`);
     notes.set(k, p);
   }
-  return { shown, gaps, realRates, realRateCount: realRates.filter((r) => r.ok).length, accessProblems: [...problems.values()], notices: [...notes.values()] };
+  const waiting = all.filter((v) => v.errorKind === "pending");
+  const pending = waiting.length
+    ? { seriesIds: waiting.map((v) => v.def.id), labels: waiting.map((v) => `${ECONOMY_NAME_SHORT[v.def.economy]} ${v.def.label}`) }
+    : null;
+  return { shown, gaps, realRates, realRateCount: realRates.filter((r) => r.ok).length, accessProblems: [...problems.values()], notices: [...notes.values()], pending };
 }
 
 export const REAL_RATE_LABEL = "computed: policy rate minus CPI YoY, latest available of each, observation dates shown";
