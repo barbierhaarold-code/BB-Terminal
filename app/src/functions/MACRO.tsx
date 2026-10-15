@@ -7,7 +7,7 @@ import {
   MIN_ECONOMIES_FOR_COMPARISON, REAL_RATE_LABEL, buildViews, dateLabel, fmtChange, fmtValue, periodLabel, type MacroViews,
 } from "@/lib/macro/math";
 import { US_GAPS, US_SERIES } from "@/lib/macro/usCatalog";
-import { readMacroUrl, writeMacroUrl } from "@/lib/macro/urlState";
+import { readMacroUrl, usSectionLoads, writeMacroUrl } from "@/lib/macro/urlState";
 import type { Economy, Indicator, RealRate, SeriesView } from "@/lib/macro/types";
 import { DataNote, EmptyBlock } from "./research/shared";
 import { DetailPanel, type DetailState } from "./macro/DetailPanel";
@@ -24,6 +24,10 @@ export function MACRO() {
   const views = useMemo(() => buildViews(snap, Date.now()), [snap, q.dataUpdatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
   const [econ, setEcon] = useState<Economy | "all">("all");
   const [ind, setInd] = useState<Indicator | "all">("all");
+  // The US catalogue and the release calendar cost FRED requests, so they load only when the US section is opened.
+  const [usOpened, setUsOpened] = useState(false);
+  const usOn = usSectionLoads(econ, usOpened);
+  const openUs = useCallback(() => setUsOpened(true), []);
   // The open detail view lives in the URL (?macro=…), so it survives a reload and can be shared as a deep link.
   const [detail, setDetail] = useState<DetailState | null>(() => {
     const u = readMacroUrl();
@@ -67,8 +71,8 @@ export function MACRO() {
         <>
           <Overview views={views} rows={rows} econ={econ} setEcon={setEcon} ind={ind} setInd={setInd} selId={selId} onSelect={open} />
           <RealRatePanel views={views} onOpen={open} />
-          {(econ === "all" || econ === "US") && <UsDeep onOpen={open} selId={selId} />}
-          {(econ === "all" || econ === "US") && <FedDocs onOpen={open} />}
+          {(econ === "all" || econ === "US") && <UsDeep onOpen={open} selId={selId} enabled={usOn} onLoad={openUs} />}
+          {(econ === "all" || econ === "US") && <FedDocs onOpen={open} calendarEnabled={usOn} onLoadCalendar={openUs} />}
           <CoverageGaps views={views} />
         </>
       )}

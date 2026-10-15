@@ -46,3 +46,10 @@ export function writeMacroUrl(s: Partial<MacroUrlState>) {
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${next}${window.location.hash}`);
   } catch { /* URL updates are a convenience; the view works without them */ }
 }
+
+/**
+ * Whether the page may request the US catalogue (/macro-proxy/us) and the release calendar, both of which cost FRED
+ * requests. Never on a plain overview open: only when the US filter is selected or the user opened the US section.
+ * A detail view does not need the catalogue (it loads its own series).
+ */
+export const usSectionLoads = (econ: string, opened: boolean) => econ === "US" || opened;
