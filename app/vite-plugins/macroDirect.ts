@@ -17,7 +17,7 @@ import { fetchWithTimeout, mapLimit, readZip } from "./shared";
 // particular echoes the key back in its "invalid key" message, which is why `scrub` exists.
 //
 // Cache sizing (the plugin honours `cacheMs`): daily sources (BoC, BoE, SNB, BIS) 6 h;
-// monthly/quarterly sources 12 h. Documented limits: BLS v2 500 queries/day and 50 series
+// monthly/quarterly sources 12 h; FRED per series frequency (macroCache.ts FREQ_TTL_MS). Documented limits: BLS v2 500 queries/day and 50 series
 // per query (this adapter: 1 query per refresh, so ≤ 2/day); FRED 120 requests/minute
 // (≤ 3 per refresh). The other providers publish no limit that could be confirmed on
 // 2026-10-09; the budget there is one request per series per refresh.
@@ -215,9 +215,12 @@ let fredPausedUntil = 0;
 let fredPauseCause = "";
 /** Test seam. */
 export function resetFredPause() { fredPausedUntil = 0; fredPauseCause = ""; fredStamps.length = 0; }
+/** True while the breaker is open (FRED refused us recently): background work skips FRED entirely. */
+export const fredPaused = (now: () => number = Date.now) => now() < fredPausedUntil;
 
-/** One FRED API call through the shared budget. Throws with a scrubbed, real cause. */
-export async function fredGet<T>(path: string, key: string, now: () => number = Date.now): Promise<T> {
+/** One FRED API call through the shared budget. Throws with a scrubbed, real cause. Never sends a request without a key. */
+export async function fredGet<T>(path: string, key: string | undefined, now: () => number = Date.now): Promise<T> {
+  if (!key?.trim()) throw new AdapterError("API key missing: FRED_API_KEY is not set. Add it to app/.env and restart the dev server.", "key_missing");
   if (now() < fredPausedUntil) {
     throw new AdapterError(`FRED refused this terminal's requests (${fredPauseCause}); FRED requests are paused until ${new Date(fredPausedUntil).toISOString().slice(11, 16)} UTC so as not to add load. Not worked around.`, "blocked");
   }
@@ -254,7 +257,8 @@ export function fredAdapter(key?: string, o: FredOptions = {}): MacroAdapter {
     ? new Date(nowMs - COMPACT_DAYS[def.frequency] * 86_400_000).toISOString().slice(0, 10)
     : `${yearsAgo(nowMs, years)}-01-01`;
   return {
-    id: "fred", cacheMs: HALF_DAY,
+    // No cacheMs: FRED series are reused for their frequency's TTL (FREQ_TTL_MS in macroCache.ts), on disk across restarts.
+    id: "fred",
     async fetchSeries(defs, nowMs) {
       if (!key?.trim()) return keyMissing(defs, nowMs, "FRED_API_KEY", "FRED");
       const settled = await mapLimit(defs, FRED_CONCURRENCY, async (def) => {

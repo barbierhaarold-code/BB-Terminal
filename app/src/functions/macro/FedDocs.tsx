@@ -37,9 +37,9 @@ function Item({ it }: { it: PolicyItem }) {
   );
 }
 
-export function FedDocs({ onOpen }: { onOpen: (id: string) => void }) {
+export function FedDocs({ onOpen, calendarEnabled, onLoadCalendar }: { onOpen: (id: string) => void; calendarEnabled: boolean; onLoadCalendar: () => void }) {
   const feed = usePolicyFeed();
-  const cal = useUsCalendar();
+  const cal = useUsCalendar(calendarEnabled); // FRED requests: loaded only once the US section is opened
   const rows = useMemo(() => ROWS.map((r) => ({ r, items: r.feed ? docItems(feed.data?.items ?? [], r.feed, r.label.startsWith("Census") ? 3 : 1) : [] })), [feed.data]);
   return (
     <div className="flex flex-col gap-2" data-testid="macro-fed-docs">
@@ -68,7 +68,8 @@ export function FedDocs({ onOpen }: { onOpen: (id: string) => void }) {
         <div className="text-[10px] text-term-muted">
           From FRED's release calendar, which carries the agencies' published schedules (machine-readable). The FOMC meeting calendar is published only as a web page, not in machine-readable form: <a className="underline hover:text-term-amber" href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm" target="_blank" rel="noreferrer noopener">FOMC meeting calendar</a>.
         </div>
-        {cal.isPending ? <div className="text-term-muted text-[11px]" data-testid="macro-calendar-loading">Loading release calendar…</div>
+        {!calendarEnabled ? <button onClick={onLoadCalendar} className="self-start underline text-term-muted hover:text-term-amber text-[11px]" data-testid="macro-calendar-load">Show the release calendar</button>
+          : cal.isPending ? <div className="text-term-muted text-[11px]" data-testid="macro-calendar-loading">Loading release calendar…</div>
           : cal.isError ? <div className="text-term-red text-[11px]" role="alert">Release calendar unavailable: {(cal.error as Error).message} <button onClick={() => cal.refetch()} className="underline">Retry</button></div>
           : cal.data.releases.length === 0 ? <div className="text-term-muted text-[11px]">No upcoming dates were returned.</div>
           : (

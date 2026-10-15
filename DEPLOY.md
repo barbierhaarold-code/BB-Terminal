@@ -65,6 +65,9 @@ docker compose ps && docker compose logs --tail 50 gateway
   With `VITE_USER_DATA_BACKEND=server` the journal and plans live in Supabase instead: see section 11 for backups.
 - **`.env.production`**: keep a copy in your password manager. It is the only server-side secret store.
 - Institutional Holdings cache volume (`hold-cache`, the SEC bulk data and its index) is re-creatable too: no backup needed.
+- Macro Hub cache volume (`macro-cache`, mounted at `/srv/.macro-cache`): the macro series, detail views and release dates already fetched
+  (FRED and the other providers), so a restart does not refetch them and burn the FRED rate budget. Public data, never a key; rebuildable,
+  no backup needed. Without the volume (read-only root filesystem) the gateway logs one warning and keeps this cache in memory only.
 - OpenBB cache volume (`openbb-data`) is re-creatable; the Caddy volume (`caddy-data`) holds the HTTPS
   certificate (re-issuable). Optional snapshot:
   `docker run --rm -v bb-terminal_openbb-data:/d -v "$PWD":/b alpine tar czf /b/openbb-data.tgz -C /d .`
@@ -97,7 +100,7 @@ docker compose down                     # stop everything (volumes kept)
   Allow about 300 MB for the `hold-cache` volume (a new quarterly data set replaces the oldest zip).
 - The gateway root filesystem is read-only, so the cache lives in the named volume `hold-cache` mounted at `/srv/.hold-cache`
   (declared in `docker-compose.yml`; the directory is created and chowned to `node` in `docker/gateway/Dockerfile`).
-- No other new proxy writes to disk: the Policy Feed (`/policy-proxy`) and Vol & Currency Strength (which reuses the existing `/api` proxy) keep everything in memory.
+- No other new proxy writes to disk except the Macro Hub cache (`macro-cache` volume, section 6): the Policy Feed (`/policy-proxy`) and Vol & Currency Strength (which reuses the existing `/api` proxy) keep everything in memory.
 - These Docker changes (compose volume, Dockerfile chown, extra environment variables) were tested locally on 2026-10-09: the volume is writable,
   the first build took about 70 s to a usable index (zips 100 MB + 99 MB, index 4 MB, `hold-cache` volume about 204 MB), and the cache survived `docker compose down` then `up -d`.
   After deploying, still check `docker compose logs gateway` for `[holdings-proxy]` errors and open HOLD once.

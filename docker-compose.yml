@@ -64,6 +64,9 @@ services:
       # docker/gateway/Dockerfile so the first-created volume is writable. UNTESTED: Docker is not installed on the
       # machine this was written on.
       - hold-cache:/srv/.hold-cache
+      # Macro Hub disk cache (public statistics, rebuildable): a restart reuses it instead of refetching from FRED.
+      # Without it the cache stays in memory only. Created and chowned to `node` in docker/gateway/Dockerfile.
+      - macro-cache:/srv/.macro-cache
     depends_on:
       openbb: { condition: service_healthy }
       quant: { condition: service_healthy }
@@ -109,6 +112,7 @@ networks:
 
 volumes:
   hold-cache: {}
+  macro-cache: {}
   openbb-data: {}
   caddy-data: {}
   caddy-config: {}

@@ -9,8 +9,9 @@ import { TOPICS, US_SERIES } from "@/lib/macro/usCatalog";
 import type { Observation, SeriesDef, SeriesView } from "@/lib/macro/types";
 import { EmptyBlock } from "../research/shared";
 
-// United States, deep coverage: every US series in topic groups. One request (/macro-proxy/us, pre-warmed by the
-// server); the six overview rows come from the overview snapshot so both views show the same numbers.
+// United States, deep coverage: every US series in topic groups. One request (/macro-proxy/us), made only once the
+// section is opened (it costs up to 58 FRED requests on a cold server); the six overview rows come from the overview
+// snapshot so both views show the same numbers.
 
 export function Spark({ points }: { points: Observation[] }) {
   const pts = points.slice(-48);
@@ -26,8 +27,8 @@ export function Spark({ points }: { points: Observation[] }) {
   );
 }
 
-export function UsDeep({ onOpen, selId }: { onOpen: (id: string) => void; selId: string | null }) {
-  const q = useUsCatalog();
+export function UsDeep({ onOpen, selId, enabled, onLoad }: { onOpen: (id: string) => void; selId: string | null; enabled: boolean; onLoad: () => void }) {
+  const q = useUsCatalog(enabled);
   const main = useMacroSnapshot();
   const now = useMemo(() => Date.now(), [q.dataUpdatedAt, main.dataUpdatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
   const views = useMemo(() => {
@@ -43,9 +44,14 @@ export function UsDeep({ onOpen, selId }: { onOpen: (id: string) => void; selId:
         <span className="sub-header">United States: deep coverage</span>
         <span className="text-term-muted text-[11px]">{US_SERIES.length + SERIES.filter((d) => d.economy === "US").length} series from FRED (citing each originating agency), U.S. Treasury FiscalData and the NY Fed. Click any row for its detail view.</span>
         {q.data && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-borderSoft text-term-muted">server cache {q.data.cacheState}</span>}
-        <button onClick={() => q.refetch()} title="Refresh" className="text-term-muted hover:text-term-amber" data-testid="macro-us-refresh"><RefreshCw size={12} className={cn(q.isFetching && "animate-spin")} /></button>
+        {enabled && <button onClick={() => q.refetch()} title="Refresh" className="text-term-muted hover:text-term-amber" data-testid="macro-us-refresh"><RefreshCw size={12} className={cn(q.isFetching && "animate-spin")} /></button>}
       </div>
-      {q.isPending && <div className="p-2 text-term-muted uppercase tracking-widest text-[11px]" data-testid="macro-us-loading">Loading US series…</div>}
+      {!enabled && (
+        <button onClick={onLoad} className="self-start px-2 py-1 border border-term-border text-[11px] uppercase tracking-wider text-term-muted hover:text-term-amber hover:border-term-amber" data-testid="macro-us-load">
+          Show US deep coverage ({US_SERIES.length} series)
+        </button>
+      )}
+      {enabled && q.isPending && <div className="p-2 text-term-muted uppercase tracking-widest text-[11px]" data-testid="macro-us-loading">Loading US series…</div>}
       {q.isError && (
         <div className="p-2 text-term-red flex flex-col items-start gap-2 text-[12px]" role="alert" data-testid="macro-us-error">
           <div><span className="sub-header text-term-red mr-1">ERROR</span>{(q.error as Error).message}</div>
