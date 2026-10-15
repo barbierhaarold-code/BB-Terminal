@@ -215,9 +215,12 @@ let fredPausedUntil = 0;
 let fredPauseCause = "";
 /** Test seam. */
 export function resetFredPause() { fredPausedUntil = 0; fredPauseCause = ""; fredStamps.length = 0; }
+/** True while the breaker is open (FRED refused us recently): background work skips FRED entirely. */
+export const fredPaused = (now: () => number = Date.now) => now() < fredPausedUntil;
 
-/** One FRED API call through the shared budget. Throws with a scrubbed, real cause. */
-export async function fredGet<T>(path: string, key: string, now: () => number = Date.now): Promise<T> {
+/** One FRED API call through the shared budget. Throws with a scrubbed, real cause. Never sends a request without a key. */
+export async function fredGet<T>(path: string, key: string | undefined, now: () => number = Date.now): Promise<T> {
+  if (!key?.trim()) throw new AdapterError("API key missing: FRED_API_KEY is not set. Add it to app/.env and restart the dev server.", "key_missing");
   if (now() < fredPausedUntil) {
     throw new AdapterError(`FRED refused this terminal's requests (${fredPauseCause}); FRED requests are paused until ${new Date(fredPausedUntil).toISOString().slice(11, 16)} UTC so as not to add load. Not worked around.`, "blocked");
   }

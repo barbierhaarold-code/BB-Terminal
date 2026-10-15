@@ -6,7 +6,7 @@ import {
 import { canonicalPeriod } from "../src/lib/macro/math";
 import type { MacroAdapter } from "./macroAdapters";
 import { RateLimitedError, USER_AGENT } from "./macroAdapters";
-import { fiscaldataAdapter, fredGet, scrub } from "./macroDirect";
+import { fiscaldataAdapter, fredGet, fredPaused, scrub } from "./macroDirect";
 import { errMessage, fetchWithTimeout } from "./shared";
 
 // ────────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ export function createDetailService(o: {
   const clean = (e: unknown) => scrub(errMessage(e), secrets);
 
   async function fredObs(code: string, q: string): Promise<Array<{ date: string; value: string; realtime_start: string; realtime_end: string }>> {
-    const j = await fredGet<{ observations?: Array<{ date: string; value: string; realtime_start: string; realtime_end: string }> }>(`series/observations?series_id=${encodeURIComponent(code)}&${q}`, key!);
+    const j = await fredGet<{ observations?: Array<{ date: string; value: string; realtime_start: string; realtime_end: string }> }>(`series/observations?series_id=${encodeURIComponent(code)}&${q}`, key);
     return j.observations ?? [];
   }
   const num = (v: string) => (v === "." || v.trim() === "" ? NaN : Number(v));
@@ -141,7 +141,7 @@ export function createDetailService(o: {
   async function releaseOf(code: string, t: number) {
     const c = releaseIds.get(code);
     if (c && c.expires > t) return c.value;
-    const j = await fredGet<{ releases?: Array<{ id: number; name: string; link?: string }> }>(`series/release?series_id=${encodeURIComponent(code)}`, key!);
+    const j = await fredGet<{ releases?: Array<{ id: number; name: string; link?: string }> }>(`series/release?series_id=${encodeURIComponent(code)}`, key);
     const r = j.releases?.[0];
     const v = r ? { id: r.id, name: r.name, link: r.link ?? null } : null;
     releaseIds.set(code, { value: v, expires: t + 7 * SHARED_TTL_MS });
@@ -160,7 +160,7 @@ export function createDetailService(o: {
     if (allDatesInflight) return allDatesInflight;
     allDatesInflight = (async () => {
       const today = new Date(t).toISOString().slice(0, 10), until = new Date(t + 60 * 86_400_000).toISOString().slice(0, 10);
-      const j = await fredGet<{ release_dates?: Array<{ release_id: number; date: string }> }>(`releases/dates?realtime_start=${today}&realtime_end=${until}&include_release_dates_with_no_data=true&limit=1000&order_by=release_date&sort_order=asc`, key!);
+      const j = await fredGet<{ release_dates?: Array<{ release_id: number; date: string }> }>(`releases/dates?realtime_start=${today}&realtime_end=${until}&include_release_dates_with_no_data=true&limit=1000&order_by=release_date&sort_order=asc`, key);
       const m = new Map<number, string[]>();
       for (const r of j.release_dates ?? []) if (r.date >= today) m.set(r.release_id, [...(m.get(r.release_id) ?? []), r.date]);
       allDates = { value: m, expires: t + RELEASE_TTL_MS };
@@ -174,7 +174,7 @@ export function createDetailService(o: {
     if (c && c.expires > t) return c.value;
     try { const fromAll = (await upcoming(t)).get(id); if (fromAll?.length) return fromAll; } catch { /* fall back to the per-release request below */ }
     const today = new Date(t).toISOString().slice(0, 10);
-    const j = await fredGet<{ release_dates?: Array<{ date: string }> }>(`release/dates?release_id=${id}&realtime_start=${today}&include_release_dates_with_no_data=true&sort_order=asc&limit=6`, key!);
+    const j = await fredGet<{ release_dates?: Array<{ date: string }> }>(`release/dates?release_id=${id}&realtime_start=${today}&include_release_dates_with_no_data=true&sort_order=asc&limit=6`, key);
     const v = (j.release_dates ?? []).map((d) => d.date).filter((d) => d >= today);
     releaseDates.set(id, { value: v, expires: t + RELEASE_TTL_MS });
     return v;
@@ -194,11 +194,12 @@ export function createDetailService(o: {
     const wantsVintages = isFred && def.vintages !== false && def.frequency !== "daily";
     const vintageRows = wantsVintages ? fredObs(def.code, `realtime_start=1776-07-04&realtime_end=9999-12-31&observation_start=${VINTAGE_FROM}`) : null;
     vintageRows?.catch(() => undefined); // awaited below; avoids an unhandled rejection while history loads
-    const metaP = isFred ? fredGet<{ seriess?: Array<{ title: string; units: string; seasonal_adjustment: string; last_updated: string; observation_start: string; observation_end: string }> }>(`series?series_id=${encodeURIComponent(def.code)}`, key!) : null;
+    const metaP = isFred ? fredGet<{ seriess?: Array<{ title: string; units: string; seasonal_adjustment: string; last_updated: string; observation_start: string; observation_end: string }> }>(`series?series_id=${encodeURIComponent(def.code)}`, key) : null;
     metaP?.catch(() => undefined);
     const releaseP = isFred && def.economy === "US" ? releaseOf(def.code, t) : null;
     releaseP?.catch(() => undefined);
-    const sharedP = def.economy === "US" ? sharedData(t).catch(() => undefined) : null;
+    // Shared data come from FRED: without a key (e.g. TGA, which is FiscalData) there is nothing to ask for.
+    const sharedP = def.economy === "US" && key ? sharedData(t).catch(() => undefined) : null;
     let readyP: Promise<boolean> | null = null; // one bounded wait per build, however many sections need the shared data
     const sharedReady = () => (readyP ??= sharedP
       ? Promise.race([sharedP.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), SHARED_WAIT_MS))])
@@ -307,7 +308,7 @@ export function createDetailService(o: {
   }
 
   return {
-    prewarm() { if (key) sharedData(now()).catch(() => undefined); },
+    prewarm() { if (key && !fredPaused(now)) sharedData(now()).catch(() => undefined); },
     async calendar() {
       if (!key) throw new Error("API key missing: FRED_API_KEY is not set. Add it to app/.env and restart the dev server.");
       const t = now();
