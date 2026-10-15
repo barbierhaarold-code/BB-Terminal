@@ -1,6 +1,6 @@
 # Per-user server storage for Track Record and Trade Plans — design
 
-Status: **Phase 2 implemented on `feature/user-data-foundation` (local branch, not pushed, not merged). Nothing has been applied to Supabase.** Section 0.5 records the approved decisions and what differs from the Phase 1 text below; where they conflict, section 0.5 wins.
+Status: **Phase 2 implemented on `feature/user-data-foundation`; migration applied to Supabase by the owner and validated live (see "Live validation" below); merged into `main` with `VITE_USER_DATA_BACKEND` defaulting to `local` (server mode is opt-in).** Section 0.5 records the approved decisions and what differs from the Phase 1 text below; where they conflict, section 0.5 wins.
 Branch: `feature/user-data-foundation` (local). Companion files:
 `supabase/migrations/20261009000000_user_data_foundation.sql` (not applied) and
 `supabase/tests/rls_isolation.sql` (not run).
@@ -27,10 +27,21 @@ Branch: `feature/user-data-foundation` (local). Companion files:
 
 Other deviations from the Phase 1 text: there is **no `localAdapter`**: local mode is the unchanged `persist` path (the stores branch on the backend flag), which is the only way to guarantee byte-identical local storage. Server mode adds `lib/userData/sync.ts` (ordered write queue; one failure rolls back that write and everything queued after it, then shows the banner with Retry). The "Import my local journal" button copies the local base capital to the account only if the user ticks the box and the account has none; Backup → Merge offers the same checkbox and otherwise never touches settings.
 
-**Production flag.** The backend is chosen by the build-time variable `VITE_USER_DATA_BACKEND` (`local` default, `server`). `docker/gateway/Dockerfile` only forwards `VITE_SUPABASE_*` build args, so enabling `server` in the production image needs one added `ARG`/`ENV` line there (and the compose pass-through). That file was deliberately not touched in this branch.
+**Production flag.** The backend is chosen by the build-time variable `VITE_USER_DATA_BACKEND` (`local` default, `server`). `docker/gateway/Dockerfile` only forwards `VITE_SUPABASE_*` build args, so enabling `server` in the production image needs one added `ARG`/`ENV` line there (and the compose pass-through). Added at wrap-up (default still `local`): `ARG`/`ENV VITE_USER_DATA_BACKEND` in `docker/gateway/Dockerfile`, the build arg in `docker-compose.yml`, the variable in `.env.production.example`, and the procedure in `DEPLOY.md`.
 
 ### Validation (throwaway Docker Postgres 15 + PostgREST; never Supabase)
 Validated: the migration runs on an empty database and re-runs cleanly (idempotent); RLS isolation (select/insert/update/delete/cannot reassign `user_id`, same app id for two users, anon has no privilege) both in SQL (`supabase/tests/rls_isolation.sql`, `schema_checks.sql`) and **over HTTP through PostgREST with real JWTs** using the actual `supabaseAdapter` (`supabaseAdapter.integration.test.ts`: idempotent import of a 67-trade fixture, canonical-hash round trip, 0-row updates are errors, a second user cannot read/modify, 2 500-row pagination); a negative control (RLS disabled) makes the isolation test fail. Not validated (Supabase-specific): the real `auth.users`/`auth.uid()` implementation (stubbed from `request.jwt.claims`), GoTrue-issued JWTs and refresh, Supabase's default grants/`supabase_admin` ownership, the Supabase API gateway/Kong and its PostgREST version and config (`db-max-rows` etc.), SQL-editor transaction behaviour, and project-level settings (disable_signup, redirect URLs). Hence the live two-account test in the report.
+
+### Live validation (Supabase, run by the owner)
+Recorded at wrap-up; reported by the owner, not re-run by Claude (Claude never connected to Supabase).
+- **SQL isolation test, live:** `supabase/tests/run_all.sql` in the Supabase SQL editor, two accounts → **SUMMARY PASS, "40 checks, 40 passed, 0 failed"** (the owner saw the result grid). This covers the migration self-check, the 8 RLS isolation checks, the schema checks for the fresh account and the "nothing kept" cleanup checks.
+- **Two-account app test:** done by the owner. The test rows it left in the outlook test account were deleted by the owner in the SQL editor; test user B is deleted by the owner (no account was created or deleted by Claude).
+- `run_all.sql` now carries a loud header: it issues update/delete statements on account A's trades as B (expected 0 rows under RLS), so it must **only ever be run with two empty throwaway accounts**, never with accounts holding real data.
+
+Honest limits of this validation:
+- The **offline** behaviour (read-only banner, writes refused while offline) was checked by **simulation** only, not by a real network loss against Supabase.
+- Sign-in switching was tested in one direction only: the **gmail → outlook** direction (signed in as the gmail account, then switching to the outlook account) was **not** tested. The reset-on-user-change logic is symmetric and unit-tested, but that direction has no live evidence.
+- Everything listed as "Not validated (Supabase-specific)" above is now covered only to the extent the 40 SQL checks and the two-account test exercise it; token refresh and long sessions were not specifically tested.
 
 ## 1. Inventory — everything that reads or writes the journal / plans
 
