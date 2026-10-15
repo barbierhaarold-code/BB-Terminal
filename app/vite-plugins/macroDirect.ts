@@ -124,8 +124,14 @@ function okSeries(def: SeriesDef, obs: Observation[], nowMs: number, meta: Meta,
 function failedSeries(def: SeriesDef, nowMs: number, message: string, kind: ErrorKind = "error", sourceUrl = ""): AdapterSeries {
   return { id: def.id, ok: false, error: message, errorKind: kind, observations: [], provider: def.provider, sourceUrl, refreshedAt: null, retrievedAt: retrievedIso(nowMs) };
 }
+/**
+ * The missing-key message, environment-neutral: it names the variable and where the server reads it from, never a file
+ * path that only exists on a developer's machine (the page is also served by the Docker gateway).
+ */
+export const keyMissingMessage = (envVar: string, who: string) =>
+  `API key missing: the ${envVar} environment variable is not set on the server (Docker deployment: .env.production); ${who} data cannot be loaded without it.`;
 const keyMissing = (defs: SeriesDef[], nowMs: number, envVar: string, who: string): AdapterSeries[] =>
-  defs.map((d) => failedSeries(d, nowMs, `API key missing: ${envVar} is not set. Add it to app/.env (see .env.example) and restart the dev server; ${who} data cannot be loaded without it.`, "key_missing"));
+  defs.map((d) => failedSeries(d, nowMs, keyMissingMessage(envVar, who), "key_missing"));
 
 const yearsAgo = (nowMs: number, y: number) => new Date(nowMs).getUTCFullYear() - y;
 /** "2026-10-02T11:00:00+0200" → ISO with a colon in the offset, which every JS engine parses. */
@@ -170,7 +176,7 @@ export function blsAdapter(key?: string): MacroAdapter {
           if (!(err instanceof AdapterError) || err.kind !== "key_rejected") throw err;
           notice = { kind: "key_rejected", message: `API key rejected: BLS rejected BLS_API_KEY (it must be activated through BLS's confirmation e-mail); ${BLS_V1_NOTE}.` };
         }
-      } else notice = { kind: "key_missing", message: `API key missing: BLS_API_KEY is not set in app/.env; ${BLS_V1_NOTE}.` };
+      } else notice = { kind: "key_missing", message: `API key missing: the BLS_API_KEY environment variable is not set on the server; ${BLS_V1_NOTE}.` };
       if (!json) json = await query(defs, nowMs, undefined);
       const msg = scrub((json.message ?? []).join(" "), [key]);
       const byId = new Map((json.Results?.series ?? []).map((s) => [s.seriesID, s]));
@@ -218,12 +224,12 @@ export function resetFredPause() { fredPausedUntil = 0; fredPauseCause = ""; fre
 /** True while the breaker is open (FRED refused us recently): background work skips FRED entirely. */
 export const fredPaused = (now: () => number = Date.now) => now() < fredPausedUntil;
 
+const fredPauseMessage = () => `FRED refused this terminal's requests (${fredPauseCause}); FRED requests are paused until ${new Date(fredPausedUntil).toISOString().slice(11, 16)} UTC so as not to add load. Not worked around.`;
+
 /** One FRED API call through the shared budget. Throws with a scrubbed, real cause. Never sends a request without a key. */
 export async function fredGet<T>(path: string, key: string | undefined, now: () => number = Date.now): Promise<T> {
-  if (!key?.trim()) throw new AdapterError("API key missing: FRED_API_KEY is not set. Add it to app/.env and restart the dev server.", "key_missing");
-  if (now() < fredPausedUntil) {
-    throw new AdapterError(`FRED refused this terminal's requests (${fredPauseCause}); FRED requests are paused until ${new Date(fredPausedUntil).toISOString().slice(11, 16)} UTC so as not to add load. Not worked around.`, "blocked");
-  }
+  if (!key?.trim()) throw new AdapterError(keyMissingMessage("FRED_API_KEY", "FRED"), "key_missing");
+  if (now() < fredPausedUntil) throw new AdapterError(fredPauseMessage(), "blocked");
   await fredSlot();
   const sep = path.includes("?") ? "&" : "?";
   let j: T & { error_code?: number; error_message?: string };
@@ -259,6 +265,8 @@ export function fredAdapter(key?: string, o: FredOptions = {}): MacroAdapter {
   return {
     // No cacheMs: FRED series are reused for their frequency's TTL (FREQ_TTL_MS in macroCache.ts), on disk across restarts.
     id: "fred",
+    // While the breaker is open, no refresh is even started (background or not); every request would be refused anyway.
+    refusal: () => (key?.trim() && fredPaused() ? { message: fredPauseMessage(), kind: "blocked" } : null),
     async fetchSeries(defs, nowMs) {
       if (!key?.trim()) return keyMissing(defs, nowMs, "FRED_API_KEY", "FRED");
       const settled = await mapLimit(defs, FRED_CONCURRENCY, async (def) => {
@@ -277,7 +285,7 @@ export function fredAdapter(key?: string, o: FredOptions = {}): MacroAdapter {
           if (err instanceof RateLimitedError || (err instanceof AdapterError && err.kind === "blocked")) throw err;
           const m = scrub(String((err as Error).message), [key]);
           const rejected = /api[_ ]key/i.test(m) && /(not|invalid)/i.test(m);
-          return failedSeries(def, nowMs, rejected ? `FRED rejected the API key (${snippet(m, 120)}). Check FRED_API_KEY in app/.env.` : m, rejected ? "key_rejected" : "error", sourceUrl);
+          return failedSeries(def, nowMs, rejected ? `FRED rejected the API key (${snippet(m, 120)}). Check the FRED_API_KEY environment variable on the server.` : m, rejected ? "key_rejected" : "error", sourceUrl);
         }
       });
       // A refusal (429, or 403 from FRED's CDN) fails the adapter as a whole, so the plugin serves older data marked STALE.

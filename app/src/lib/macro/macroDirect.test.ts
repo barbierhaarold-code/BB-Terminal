@@ -56,7 +56,7 @@ describe("BLS adapter", () => {
       expect(calls[0].url).toContain("/publicAPI/v1/");
       expect(String(calls[0].init?.body)).not.toContain("registrationkey");
       expect(JSON.parse(String(calls[0].init?.body)).startyear).toBe("2017"); // 10 calendar years max on v1
-      expect(r.every((s) => s.ok && s.notice?.kind === "key_missing" && /BLS_API_KEY is not set/.test(s.notice.message) && /25 queries\/day/.test(s.notice.message))).toBe(true);
+      expect(r.every((s) => s.ok && s.notice?.kind === "key_missing" && /BLS_API_KEY environment variable is not set on the server/.test(s.notice.message) && !/app\/\.env/.test(s.notice.message) && /25 queries\/day/.test(s.notice.message))).toBe(true);
     }
   });
   it("parses monthly periods only (M13 annual average and '-' are dropped) and sends ONE v2 request carrying the key only in the body", async () => {

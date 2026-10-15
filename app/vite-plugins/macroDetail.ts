@@ -6,7 +6,7 @@ import {
 import { canonicalPeriod } from "../src/lib/macro/math";
 import type { MacroAdapter } from "./macroAdapters";
 import { RateLimitedError, USER_AGENT } from "./macroAdapters";
-import { fiscaldataAdapter, fredGet, fredPaused, scrub } from "./macroDirect";
+import { fiscaldataAdapter, fredGet, fredPaused, keyMissingMessage, scrub } from "./macroDirect";
 import type { MacroDiskCache } from "./macroCache";
 import { errMessage, fetchWithTimeout } from "./shared";
 
@@ -231,7 +231,7 @@ export function createDetailService(o: {
       revisions: { available: false, reason: "" }, reaction: { available: false, reason: "" }, recessions: null, warnings,
     };
     const isFred = def.adapter === "fred";
-    if (isFred && !key) throw new Error("API key missing: FRED_API_KEY is not set. Add it to app/.env and restart the dev server.");
+    if (isFred && !key) throw new Error(keyMissingMessage("FRED_API_KEY", "FRED"));
 
     // Independent requests start together (each still goes through the shared FRED budget).
     const wantsVintages = isFred && def.vintages !== false && def.frequency !== "daily";
@@ -353,7 +353,7 @@ export function createDetailService(o: {
   return {
     prewarm() { if (key && !fredPaused(now)) sharedData(now()).catch(() => undefined); },
     async calendar() {
-      if (!key) throw new Error("API key missing: FRED_API_KEY is not set. Add it to app/.env and restart the dev server.");
+      if (!key) throw new Error(keyMissingMessage("FRED_API_KEY", "FRED"));
       const t = now();
       const rows = await Promise.all(US_RELEASES.map(async (r): Promise<UsCalendarRow> => {
         try { return { releaseId: r.id, name: r.name, series: r.series, next: (await datesOf(r.id, t))[0] ?? null }; }
