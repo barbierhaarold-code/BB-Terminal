@@ -56,3 +56,5 @@ app/.lean-cache/
 
 # Institutional Holdings (HOLD): downloaded SEC bulk data sets + derived index
 app/.hold-cache/
+# Macro Hub disk cache (MACRO_CACHE_DIR default; public statistics only, re-creatable)
+app/.macro-cache/

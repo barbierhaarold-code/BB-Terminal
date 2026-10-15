@@ -7,6 +7,7 @@ import { canonicalPeriod } from "../src/lib/macro/math";
 import type { MacroAdapter } from "./macroAdapters";
 import { RateLimitedError, USER_AGENT } from "./macroAdapters";
 import { fiscaldataAdapter, fredGet, fredPaused, scrub } from "./macroDirect";
+import type { MacroDiskCache } from "./macroCache";
 import { errMessage, fetchWithTimeout } from "./shared";
 
 // ────────────────────────────────────────────────────────────
@@ -15,7 +16,8 @@ import { errMessage, fetchWithTimeout } from "./shared";
 // calendar once per release (12 h). Shared, once a day: NBER recession months and the three market series used for
 // release-day reactions. Everything is cached (6 h per indicator) and single-flighted, so repeated clicks, overlays
 // and the Copilot reuse the same answer. Non-FRED series reuse their own adapter (one request) and say plainly that
-// revisions are not tracked.
+// revisions are not tracked. With a disk cache, finished answers, release ids/dates and the shared series survive a
+// restart (same TTLs). No FRED request is ever made without a key, and none in the background while the breaker is open.
 // ────────────────────────────────────────────────────────────
 
 const DETAIL_TTL_MS = 6 * 60 * 60_000;
@@ -76,6 +78,8 @@ export function createDetailService(o: {
   fromSnapshot?: (id: string) => AdapterSeries | undefined;
   /** test seam: replaces the gold fetch (OpenBB) */
   goldFetcher?: (fromIso: string) => Promise<Observation[]>;
+  /** disk cache shared with the snapshot loaders (macroCache.ts); null/undefined keeps everything in memory */
+  store?: MacroDiskCache | null;
 }): DetailService {
   const now = o.now ?? Date.now;
   const key = o.fredKey?.trim() || undefined;
@@ -90,6 +94,16 @@ export function createDetailService(o: {
 
   const secrets = [key];
   const clean = (e: unknown) => scrub(errMessage(e), secrets);
+  const store = o.store ?? null;
+  /** A value from disk if it is younger than ttl (as a memory entry with its real expiry), else null. */
+  function fromDisk<T>(diskKey: string, ttl: number, t: number): Cached<T> | null {
+    const e = store?.get<T>(diskKey);
+    if (!e) return null;
+    const expires = Date.parse(e.fetchedAt) + ttl;
+    return expires > t ? { value: e.value, expires } : null;
+  }
+  const toDisk = <T>(diskKey: string, source: string, seriesId: string, t: number, value: T) =>
+    store?.set(diskKey, { source, seriesId, fetchedAt: new Date(t).toISOString(), value });
 
   async function fredObs(code: string, q: string): Promise<Array<{ date: string; value: string; realtime_start: string; realtime_end: string }>> {
     const j = await fredGet<{ observations?: Array<{ date: string; value: string; realtime_start: string; realtime_end: string }> }>(`series/observations?series_id=${encodeURIComponent(code)}&${q}`, key);
@@ -97,33 +111,57 @@ export function createDetailService(o: {
   }
   const num = (v: string) => (v === "." || v.trim() === "" ? NaN : Number(v));
 
+  /** One market series for the reaction measurement, cached on its own so a failing leg (e.g. gold when OpenBB is down) never refetches the others. */
+  const assetCache = new Map<string, Cached<{ points: Array<[string, number]> } | { error: string }>>();
+  const ASSETS: Array<{ id: string; fred: boolean; label: string; unit: "bp" | "%"; proxyNote?: string; source: string; missing: string }> = [
+    { id: "DGS2", fred: true, label: "2-year Treasury yield", unit: "bp", source: "FRED DGS2 (Board of Governors, H.15; end-of-day constant maturity)", missing: "2-year Treasury yield (FRED DGS2)" },
+    { id: "DTWEXBGS", fred: true, label: "US dollar (Fed broad index)", unit: "%", proxyNote: "proxy for DXY: the Federal Reserve Board's Nominal Broad U.S. Dollar Index (H.10, based on noon New York rates). DXY itself is an ICE index that is not free", source: "FRED DTWEXBGS (Board of Governors, H.10)", missing: "US dollar index (FRED DTWEXBGS)" },
+    { id: "GOLD", fred: false, label: "Gold", unit: "%", proxyNote: "proxy for spot gold: COMEX front-month gold futures (GC=F) daily close, from Yahoo Finance through this terminal's OpenBB backend", source: "Yahoo Finance GC=F via OpenBB", missing: "Gold (GC=F via OpenBB)" },
+  ];
+  const assetFrom = `${+REACTION_FROM.slice(0, 4) - 1}-12-01`;
+  async function loadAsset(a: (typeof ASSETS)[number], t: number) {
+    const c = assetCache.get(a.id);
+    if (c && c.expires > t) return;
+    const d = fromDisk<Array<[string, number]>>(`shared/${a.fred ? "fred" : "openbb"}/${a.id}`, SHARED_TTL_MS, t);
+    if (d) { assetCache.set(a.id, { value: { points: d.value }, expires: d.expires }); return; }
+    try {
+      let points: Array<[string, number]>;
+      if (a.fred) {
+        points = [];
+        for (const r of await fredObs(a.id, `observation_start=${assetFrom}`)) { const v = num(r.value); if (Number.isFinite(v)) points.push([r.date, v]); }
+      } else {
+        const g = o.goldFetcher ? await o.goldFetcher(assetFrom) : await openbbGold(assetFrom);
+        points = g.map((x) => [x.period, x.value]);
+      }
+      assetCache.set(a.id, { value: { points }, expires: t + SHARED_TTL_MS });
+      toDisk(`shared/${a.fred ? "fred" : "openbb"}/${a.id}`, a.fred ? "FRED" : "OpenBB (Yahoo Finance)", a.id, t, points);
+    } catch (e) {
+      assetCache.set(a.id, { value: { error: clean(e) }, expires: t + FAILURE_COOLDOWN_MS * 10 });
+    }
+  }
+
   async function sharedData(t: number) {
     if (usrec && usrec.expires > t && assets && assets.expires > t) return;
     if (sharedInflight) { await sharedInflight; return; }
     sharedInflight = (async () => {
+      if (!usrec || usrec.expires <= t) usrec = fromDisk<Array<[string, string]>>("shared/fred/USREC", SHARED_TTL_MS, t);
       if (!usrec || usrec.expires <= t) {
         try {
           const rows = await fredObs("USREC", "observation_start=1900-01-01");
           const obs = rows.map((r) => ({ period: canonicalPeriod(r.date, "monthly") ?? "", value: num(r.value) })).filter((x) => x.period && Number.isFinite(x.value));
           usrec = { value: recessionRanges(obs), expires: t + SHARED_TTL_MS };
+          toDisk("shared/fred/USREC", "FRED", "USREC", t, usrec.value);
         } catch { usrec = { value: [], expires: t + FAILURE_COOLDOWN_MS }; }
       }
       if (!assets || assets.expires <= t) {
+        for (const a of ASSETS) await loadAsset(a, t);
         const list: AssetSeries[] = [], missing: string[] = [];
-        const daily = async (code: string) => {
-          const m = new Map<string, number>();
-          for (const r of await fredObs(code, `observation_start=${+REACTION_FROM.slice(0, 4) - 1}-12-01`)) { const v = num(r.value); if (Number.isFinite(v)) m.set(r.date, v); }
-          return m;
-        };
-        try { list.push({ id: "DGS2", label: "2-year Treasury yield", unit: "bp", source: "FRED DGS2 (Board of Governors, H.15; end-of-day constant maturity)", points: await daily("DGS2") }); }
-        catch (e) { missing.push(`2-year Treasury yield (FRED DGS2): ${clean(e)}`); }
-        try { list.push({ id: "DTWEXBGS", label: "US dollar (Fed broad index)", unit: "%", proxyNote: "proxy for DXY: the Federal Reserve Board's Nominal Broad U.S. Dollar Index (H.10, based on noon New York rates). DXY itself is an ICE index that is not free", source: "FRED DTWEXBGS (Board of Governors, H.10)", points: await daily("DTWEXBGS") }); }
-        catch (e) { missing.push(`US dollar index (FRED DTWEXBGS): ${clean(e)}`); }
-        try {
-          const g = o.goldFetcher ? await o.goldFetcher(`${+REACTION_FROM.slice(0, 4) - 1}-12-01`) : await openbbGold(`${+REACTION_FROM.slice(0, 4) - 1}-12-01`);
-          list.push({ id: "GOLD", label: "Gold", unit: "%", proxyNote: "proxy for spot gold: COMEX front-month gold futures (GC=F) daily close, from Yahoo Finance through this terminal's OpenBB backend", source: "Yahoo Finance GC=F via OpenBB", points: new Map(g.map((x) => [x.period, x.value])) });
-        } catch (e) { missing.push(`Gold (GC=F via OpenBB): ${clean(e)}`); }
-        assets = { value: { list, missing }, expires: t + (list.length === 3 ? SHARED_TTL_MS : FAILURE_COOLDOWN_MS * 10) };
+        for (const a of ASSETS) {
+          const v = assetCache.get(a.id)!.value;
+          if ("points" in v) list.push({ id: a.id, label: a.label, unit: a.unit, ...(a.proxyNote ? { proxyNote: a.proxyNote } : {}), source: a.source, points: new Map(v.points) });
+          else missing.push(`${a.missing}: ${v.error}`);
+        }
+        assets = { value: { list, missing }, expires: Math.min(...ASSETS.map((a) => assetCache.get(a.id)!.expires)) };
       }
     })().finally(() => { sharedInflight = null; });
     await sharedInflight;
@@ -139,12 +177,13 @@ export function createDetailService(o: {
   }
 
   async function releaseOf(code: string, t: number) {
-    const c = releaseIds.get(code);
-    if (c && c.expires > t) return c.value;
+    const c = releaseIds.get(code) ?? fromDisk<{ id: number; name: string; link: string | null } | null>(`release-of/${code}`, 7 * SHARED_TTL_MS, t);
+    if (c && c.expires > t) { releaseIds.set(code, c); return c.value; }
     const j = await fredGet<{ releases?: Array<{ id: number; name: string; link?: string }> }>(`series/release?series_id=${encodeURIComponent(code)}`, key);
     const r = j.releases?.[0];
     const v = r ? { id: r.id, name: r.name, link: r.link ?? null } : null;
     releaseIds.set(code, { value: v, expires: t + 7 * SHARED_TTL_MS });
+    toDisk(`release-of/${code}`, "FRED", code, t, v);
     return v;
   }
   /**
@@ -158,25 +197,29 @@ export function createDetailService(o: {
   async function upcoming(t: number): Promise<Map<number, string[]>> {
     if (allDates && allDates.expires > t) return allDates.value;
     if (allDatesInflight) return allDatesInflight;
+    const d = fromDisk<Array<[number, string[]]>>("release-dates/all", RELEASE_TTL_MS, t);
+    if (d) { allDates = { value: new Map(d.value), expires: d.expires }; return allDates.value; }
     allDatesInflight = (async () => {
       const today = new Date(t).toISOString().slice(0, 10), until = new Date(t + 60 * 86_400_000).toISOString().slice(0, 10);
       const j = await fredGet<{ release_dates?: Array<{ release_id: number; date: string }> }>(`releases/dates?realtime_start=${today}&realtime_end=${until}&include_release_dates_with_no_data=true&limit=1000&order_by=release_date&sort_order=asc`, key);
       const m = new Map<number, string[]>();
       for (const r of j.release_dates ?? []) if (r.date >= today) m.set(r.release_id, [...(m.get(r.release_id) ?? []), r.date]);
       allDates = { value: m, expires: t + RELEASE_TTL_MS };
+      toDisk("release-dates/all", "FRED", "releases/dates", t, [...m]);
       return m;
     })().finally(() => { allDatesInflight = null; });
     return allDatesInflight;
   }
 
   async function datesOf(id: number, t: number): Promise<string[]> {
-    const c = releaseDates.get(id);
-    if (c && c.expires > t) return c.value;
+    const c = releaseDates.get(id) ?? fromDisk<string[]>(`release-dates/${id}`, RELEASE_TTL_MS, t);
+    if (c && c.expires > t) { releaseDates.set(id, c); return c.value; }
     try { const fromAll = (await upcoming(t)).get(id); if (fromAll?.length) return fromAll; } catch { /* fall back to the per-release request below */ }
     const today = new Date(t).toISOString().slice(0, 10);
     const j = await fredGet<{ release_dates?: Array<{ date: string }> }>(`release/dates?release_id=${id}&realtime_start=${today}&include_release_dates_with_no_data=true&sort_order=asc&limit=6`, key);
     const v = (j.release_dates ?? []).map((d) => d.date).filter((d) => d >= today);
     releaseDates.set(id, { value: v, expires: t + RELEASE_TTL_MS });
+    toDisk(`release-dates/${id}`, "FRED", `release ${id}`, t, v);
     return v;
   }
 
@@ -322,13 +365,17 @@ export function createDetailService(o: {
       const def = o.defs[id];
       if (!def) throw Object.assign(new Error(`Unknown indicator "${id}".`), { status: 404 });
       const t = now();
-      const c = cache.get(id);
-      if (c && c.expires > t) return { detail: c.value, cacheState: "HIT" };
+      const c = cache.get(id) ?? fromDisk<MacroDetail>(`detail/${id}`, DETAIL_TTL_MS, t);
+      if (c && c.expires > t) { cache.set(id, c); return { detail: c.value, cacheState: "HIT" }; }
       const f = failures.get(id);
       if (f && f.until > t) throw new Error(f.message);
       let p = inflight.get(id);
       if (!p) {
-        p = build(def, t).then(({ partial, ...d }) => { cache.set(id, { value: d, expires: t + (partial ? PARTIAL_TTL_MS : DETAIL_TTL_MS) }); failures.delete(id); return d; })
+        p = build(def, t).then(({ partial, ...d }) => {
+          cache.set(id, { value: d, expires: t + (partial ? PARTIAL_TTL_MS : DETAIL_TTL_MS) });
+          if (!partial) toDisk(`detail/${id}`, d.provider, id, t, d);
+          failures.delete(id); return d;
+        })
           .catch((e) => { failures.set(id, { message: clean(e), until: t + FAILURE_COOLDOWN_MS }); throw new Error(clean(e)); })
           .finally(() => inflight.delete(id));
         inflight.set(id, p);
