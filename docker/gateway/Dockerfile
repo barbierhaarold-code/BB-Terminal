@@ -22,6 +22,8 @@ COPY --from=build /app/dist /srv/dist
 COPY --from=build /app/dist-server/index.cjs /srv/index.cjs
 # Writable cache for Institutional Holdings (mounted as the `hold-cache` volume; the root filesystem is read-only).
 RUN mkdir -p /srv/.hold-cache && chown node:node /srv/.hold-cache
+# Writable Macro Hub disk cache (mounted as the `macro-cache` volume; MACRO_CACHE_DIR defaults to /srv/.macro-cache).
+RUN mkdir -p /srv/.macro-cache && chown node:node /srv/.macro-cache
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
