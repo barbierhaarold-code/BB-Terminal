@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { RefreshCw, AlertTriangle } from "lucide-react";
+import { RefreshCw, AlertTriangle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useMacroSnapshot } from "@/lib/macro/client";
 import { ECONOMIES, ECONOMY_EXTRA_GAPS, ECONOMY_NAME, INDICATORS, INDICATOR_NAME, SERIES, STALE_RULE_TEXT } from "@/lib/macro/config";
@@ -8,7 +8,8 @@ import {
 } from "@/lib/macro/math";
 import { US_GAPS, US_SERIES } from "@/lib/macro/usCatalog";
 import { readMacroUrl, usSectionLoads, writeMacroUrl } from "@/lib/macro/urlState";
-import type { Economy, Indicator, RealRate, SeriesView } from "@/lib/macro/types";
+import { servedLabel } from "@/lib/macro/served";
+import type { Economy, Indicator, MacroSnapshot, RealRate, SeriesView } from "@/lib/macro/types";
 import { DataNote, EmptyBlock } from "./research/shared";
 import { DetailPanel, type DetailState } from "./macro/DetailPanel";
 import { FedDocs } from "./macro/FedDocs";
@@ -17,7 +18,7 @@ import { Spark, UsDeep } from "./macro/UsDeep";
 const inputCls = "bg-term-panel border border-term-border px-2 py-1 text-term-text focus:outline-none focus:border-term-amber";
 
 export function MACRO() {
-  const q = useMacroSnapshot();
+  const q = useMacroSnapshot(true); // refetches itself while a source is still loading on the server (bounded, see served.ts)
   const snap = q.data;
   // Ages are measured against the browser clock at the moment the data was last received, so a tab left open
   // keeps flagging staleness on refetch and never freezes at "fresh".
@@ -54,7 +55,7 @@ export function MACRO() {
             <span className="text-term-amber text-[11px] tracking-[0.25em] font-bold">MACRO HUB</span>
             <span className="text-term-muted text-[11px]">G8 macro data from official provider APIs, FRED and DBnomics · click any row for its detail view · descriptive · not live</span>
           </div>
-          {snap && <StatusLine fetchedAt={snap.fetchedAt} cacheState={snap.cacheState} adapter={snap.adapter} />}
+          {snap && <StatusLine snap={snap} />}
         </div>
         <button onClick={() => q.refetch()} title="Refresh" className="text-term-muted hover:text-term-amber shrink-0 mt-0.5" data-testid="macro-refresh">
           <RefreshCw size={13} className={cn(q.isFetching && "animate-spin")} />
@@ -64,6 +65,7 @@ export function MACRO() {
       {q.isPending && <div className="p-3 text-term-muted uppercase tracking-widest text-[11px]" data-testid="macro-loading">Loading macro data…</div>}
       {q.isError && !q.isPending && <MacroError error={q.error} onRetry={() => q.refetch()} fetching={q.isFetching} />}
       {snap && snap.cacheState === "STALE" && <Banner testid="macro-stale-cache">{snap.warnings[0]}</Banner>}
+      {snap && <PendingNote views={views} fetching={q.isFetching} />}
       {snap && <AccessProblems views={views} />}
       {snap && <SourceNotes views={views} />}
 
@@ -87,12 +89,13 @@ export function MACRO() {
 
 // ───────────── status + states ─────────────
 
-function StatusLine({ fetchedAt, cacheState, adapter }: { fetchedAt: string; cacheState: string; adapter: string }) {
-  const t = new Date(fetchedAt);
+function StatusLine({ snap }: { snap: MacroSnapshot }) {
+  const t = new Date(snap.fetchedAt), adapter = snap.adapter, s = snap.served;
+  const detail = s ? `Per series: ${s.memory} from server memory, ${s.disk} from the disk cache, ${s.fetched} fetched from their source, ${s.stale} older cached copies (${s.refreshing} being refreshed), ${s.pending} still loading, ${s.failed} source errors, ${s.unrequested} not requested (API key missing).` : "";
   return (
     <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[11px]" data-testid="macro-status">
       <span className="num text-term-text">Retrieved {t.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</span>
-      <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-borderSoft text-term-muted" title={`Adapters: ${adapter.split("+").join(", ")}`}>{adapter.split("+").length} source adapters · server cache {cacheState}</span>
+      <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-borderSoft text-term-muted" title={`Adapters: ${adapter.split("+").join(", ")}. ${detail}`} data-testid="macro-served">{adapter.split("+").length} source adapters · {servedLabel(snap)}</span>
       <span className="text-term-muted">Each figure carries its own observation period; none is a live quote.</span>
     </div>
   );
@@ -103,6 +106,23 @@ function Banner({ children, testid }: { children: React.ReactNode; testid: strin
     <div data-testid={testid} className="flex items-start gap-2 border border-term-amber/60 bg-term-amberSubtle px-2 py-1 text-[11px] leading-snug text-term-text">
       <AlertTriangle size={12} className="mt-0.5 shrink-0 text-term-amber" />
       <span>{children}</span>
+    </div>
+  );
+}
+
+/**
+ * Series with no cached copy whose source missed the per-adapter deadline. Not an error and not a key problem: the
+ * request is still running on the server, and the page refetches itself (every 10 s, at most 2 minutes) until it lands.
+ */
+function PendingNote({ views, fetching }: { views: MacroViews; fetching: boolean }) {
+  if (!views.pending) return null;
+  return (
+    <div data-testid="macro-pending" className="flex items-start gap-2 border border-term-borderSoft bg-term-panel2 px-2 py-1 text-[11px] leading-snug text-term-text">
+      <Loader2 size={12} className={cn("mt-0.5 shrink-0 text-term-muted", fetching && "animate-spin")} />
+      <span>
+        <b>Still loading</b> — {views.pending.labels.join("; ")}: the source has not answered yet. Its request keeps running on the server;
+        this page refreshes itself when the data arrive. Retry in a moment if it does not.
+      </span>
     </div>
   );
 }
@@ -152,6 +172,16 @@ function MacroError({ error, onRetry, fetching }: { error: unknown; onRetry: () 
 
 function Chip({ children, title, testid }: { children: React.ReactNode; title?: string; testid?: string }) {
   return <span title={title} data-testid={testid} className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-amber text-term-amber whitespace-nowrap">{children}</span>;
+}
+
+/** The server served an older cached copy (past its refresh interval) instead of waiting for the source. */
+function StaleCacheChip({ at, refreshing }: { at: string; refreshing: boolean }) {
+  const when = new Date(at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return (
+    <Chip testid="macro-stale-cache-chip" title={`Cached copy retrieved ${when}, past its refresh interval. ${refreshing ? "A refresh is running in the background; the page updates when it lands." : "Its source is failing; the copy is shown until it answers again."}`}>
+      STALE CACHE
+    </Chip>
+  );
 }
 
 function Overview(p: {
@@ -209,6 +239,7 @@ function Overview(p: {
                     <td className="px-2 py-1.5"><Spark points={v.points} /></td>
                     <td className="px-2 py-1.5">
                       <div className="flex gap-1 flex-wrap">
+                        {v.staleCache && <StaleCacheChip at={v.staleCache.fetchedAt} refreshing={v.staleCache.refreshing} />}
                         {v.freshness?.state === "stale" && (
                           <Chip testid="macro-stale-chip" title={`Older than expected: ${v.freshness.ageDays} days since ${v.freshness.basis === "refresh" ? "the source last refreshed it" : "the end of the period"}; expected at most ${v.freshness.lagDays}.`}>STALE</Chip>
                         )}
@@ -341,7 +372,7 @@ function Comparison({ rows, onOpen }: { rows: RealRate[]; onOpen: (id: string) =
 
 const GAP_KIND: Record<string, string> = {
   no_series: "No fresh series found", excluded_provider: "Provider excluded", stale_mirror: "Stale mirror", not_pinned: "Not wired yet", fetch_error: "Fetch problem", too_old: "Too old to show",
-  key_missing: "API key missing", key_rejected: "API key rejected", blocked: "Source blocked",
+  key_missing: "API key missing", key_rejected: "API key rejected", blocked: "Source blocked", pending: "Still loading",
 };
 
 function CoverageGaps({ views }: { views: MacroViews }) {

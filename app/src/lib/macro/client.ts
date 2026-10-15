@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import type { MacroSnapshot } from "./types";
 import type { MacroDetail } from "./detail";
+import { pendingPoller } from "./served";
 
 // ────────────────────────────────────────────────────────────
 // Macro Hub client. ONE request (/macro-proxy/snapshot) carries every series, so the
@@ -34,7 +35,14 @@ export const macroSnapshotQuery = {
   retry: 0, // like the News, COT and Market Context panels: show the real cause + a Retry button right away
 };
 
-export const useMacroSnapshot = () => useQuery(macroSnapshotQuery);
+// While a source is still loading on the server (or a stale copy is being refreshed), the page refetches itself: at most
+// every 10 s, for at most 2 minutes (served.ts). One poller per query, attached by ONE observer (the page), so two
+// components reading the same snapshot do not double the requests.
+const snapshotPoll = pendingPoller();
+const usPoll = pendingPoller();
+
+/** `poll`: refetch while the server is still loading something (the Macro Hub page sets it; other readers do not). */
+export const useMacroSnapshot = (poll = false) => useQuery({ ...macroSnapshotQuery, refetchInterval: poll ? (q) => snapshotPoll(q.state.data) : false });
 export const getMacroSnapshot = () => queryClient.fetchQuery(macroSnapshotQuery);
 
 // ───────────── US deep coverage, indicator detail, US release calendar ─────────────
@@ -57,7 +65,7 @@ export const usCatalogQuery = {
   staleTime: STALE_MS,
   retry: 0,
 };
-export const useUsCatalog = (enabled = true) => useQuery({ ...usCatalogQuery, enabled });
+export const useUsCatalog = (enabled = true) => useQuery({ ...usCatalogQuery, enabled, refetchInterval: (q) => usPoll(q.state.data) });
 
 /** One indicator's detail (full history, revisions, release calendar, reactions). Cached server-side 6 h. */
 export const macroDetailQuery = (id: string) => ({
