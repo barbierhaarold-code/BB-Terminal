@@ -211,11 +211,18 @@ describe("macro-proxy with several adapters", () => {
       expect((await s.get()).status).toBe(200);
       fail = true;
       vi.setSystemTime(new Date("2026-10-09T09:00:00Z"));
+      // Stale-while-revalidate: the older copy is served at once while the refresh runs in the background…
+      const first = await s.get();
+      expect(first.status).toBe(200);
+      expect(first.body.results.cacheState).toBe("STALE");
+      expect(first.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi")).toMatchObject({ ok: true, staleCache: { refreshing: true } });
+      await new Promise((r) => setTimeout(r, 20));
+      // …and once that refresh has failed, the next answer names the real cause.
       const r = await s.get();
       expect(r.status).toBe(200);
       expect(r.body.results.cacheState).toBe("STALE");
       expect(r.body.results.warnings[0]).toMatch(/fred is unreachable \(FRED unreachable \(ECONNRESET\)\.\)/);
-      expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi").ok).toBe(true); // the older data, still there
+      expect(r.body.results.series.find((x: AdapterSeries) => x.id === "us.cpi")).toMatchObject({ ok: true, staleCache: { refreshing: false } }); // the older data, still there
     } finally { vi.useRealTimers(); }
   });
 

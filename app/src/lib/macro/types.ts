@@ -5,8 +5,12 @@
 
 /** Which server-side adapter fetches a series. The UI and the maths never look at this. */
 export type AdapterId = "dbnomics" | "bls" | "fred" | "eurostat" | "statcan" | "boc" | "boe" | "snb" | "bis" | "jpstat" | "imf" | "fiscaldata" | "nyfedsce" | "mof";
-/** Why a series has no data, when that is more specific than "error". */
-export type ErrorKind = "error" | "key_missing" | "key_rejected" | "blocked";
+/**
+ * Why a series has no data, when that is more specific than "error".
+ * "pending": not an error. The source has not answered within the per-adapter deadline and nothing is cached yet;
+ * the request keeps running on the server and the page refreshes itself when it lands.
+ */
+export type ErrorKind = "error" | "key_missing" | "key_rejected" | "blocked" | "pending";
 
 export type Economy = "US" | "EA" | "UK" | "JP" | "CA" | "AU" | "NZ" | "CH";
 export type Indicator = "policy_rate" | "cpi_yoy" | "core_cpi_yoy" | "unemployment" | "gdp_growth" | "yield_10y";
@@ -27,7 +31,9 @@ export interface AdapterSeries {
   error?: string;                // real cause when !ok
   /** Non-blocking note: the data IS served, but through a fallback route (e.g. a missing/rejected API key with a keyless endpoint). */
   notice?: { kind: "key_missing" | "key_rejected"; message: string };
-  errorKind?: ErrorKind;         // set when the cause is a missing/rejected API key or a bot challenge
+  errorKind?: ErrorKind;         // set when the cause is a missing/rejected API key, a bot challenge, or a fetch still running
+  /** Set when this copy came from the server cache although it is past its refresh interval (stale-while-revalidate). */
+  staleCache?: { fetchedAt: string; refreshing: boolean };
   observations: Observation[];   // ascending by period, NA values already dropped
   provider: string;              // e.g. "Federal Reserve Board"
   sourceUrl: string;             // where a human can see the series
@@ -35,10 +41,28 @@ export interface AdapterSeries {
   retrievedAt: string;           // ISO: when this terminal fetched it
 }
 
+/**
+ * Where each series of a snapshot came from, counted per series. Only `fetched` means an upstream request answered
+ * during this assembly; a series whose key is missing was never requested (`unrequested`).
+ */
+export interface ServedStats {
+  memory: number;       // fresh copy held in server memory
+  disk: number;         // fresh copy read from the disk cache (e.g. after a restart)
+  fetched: number;      // fetched from its source for this answer
+  stale: number;        // older cached copy served (past its refresh interval, or its source is failing)
+  refreshing: number;   // of `stale`: a background refresh is running for it
+  pending: number;      // no cached copy and its source missed the deadline: still loading in the background
+  failed: number;       // the source answered with an error (or is in its failure cool-down)
+  unrequested: number;  // never requested (API key missing)
+}
+
 export interface MacroSnapshot {
   adapter: string;               // "dbnomics"
   fetchedAt: string;
+  /** Legacy summary of `served` (also sent as x-bbterminal-cache): STALE if any older copy is served, MISS if anything went upstream, else HIT. */
   cacheState: "HIT" | "MISS" | "STALE";
+  /** Per-series provenance; absent from servers older than this field. */
+  served?: ServedStats;
   warnings: string[];
   series: AdapterSeries[];
 }
@@ -144,9 +168,10 @@ export interface SeriesView<D extends SeriesDef = MatrixDef> {
   error?: string;
   errorKind?: ErrorKind;
   notice?: { kind: "key_missing" | "key_rejected"; message: string };
+  staleCache?: { fetchedAt: string; refreshing: boolean };
 }
 
-export interface GapRow { economy: Economy; indicator: Indicator; kind: "no_series" | "excluded_provider" | "stale_mirror" | "not_pinned" | "fetch_error" | "too_old" | "key_missing" | "key_rejected" | "blocked"; reason: string }
+export interface GapRow { economy: Economy; indicator: Indicator; kind: "no_series" | "excluded_provider" | "stale_mirror" | "not_pinned" | "fetch_error" | "too_old" | "key_missing" | "key_rejected" | "blocked" | "pending"; reason: string }
 
 export interface RealRate {
   economy: Economy;

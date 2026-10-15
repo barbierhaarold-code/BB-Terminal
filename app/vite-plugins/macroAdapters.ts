@@ -17,6 +17,11 @@ export interface MacroAdapter {
   cacheMs?: number;
   /** Fetch all `defs` for this adapter in as few upstream requests as possible. Throws with the real cause if the whole request fails. */
   fetchSeries(defs: SeriesDef[], nowMs: number): Promise<AdapterSeries[]>;
+  /**
+   * Non-null while the provider must not be asked at all (FRED's circuit breaker is open). The plugin then starts no
+   * refresh: older copies are served marked stale with this cause, series without one get it as their error.
+   */
+  refusal?(): { message: string; kind: ErrorKind } | null;
 }
 
 /** Thrown for an upstream rate-limit so the plugin can honour Retry-After. */

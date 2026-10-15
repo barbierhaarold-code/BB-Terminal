@@ -130,7 +130,9 @@ describe("detail service", () => {
 
   it("a missing FRED key is an explicit error, never an empty panel", async () => {
     const svc = createDetailService({ defs: ALL_BY_ID, adapters: new Map(), fredKey: undefined, now: () => NOW });
-    await expect(svc.get("us.cpi")).rejects.toThrow(/FRED_API_KEY is not set/);
+    const err = await svc.get("us.cpi").then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/the FRED_API_KEY environment variable is not set on the server/);
+    expect(err?.message).not.toMatch(/app\/\.env|dev server/); // environment-neutral: no path the production user cannot see
   });
 });
 

@@ -6,6 +6,7 @@ import { SERIES } from "@/lib/macro/config";
 import { fmtHeadline, fmtHeadlineDelta } from "@/lib/macro/format";
 import { buildView, dateLabel, periodLabel } from "@/lib/macro/math";
 import { TOPICS, US_SERIES } from "@/lib/macro/usCatalog";
+import { servedLabel } from "@/lib/macro/served";
 import type { Observation, SeriesDef, SeriesView } from "@/lib/macro/types";
 import { EmptyBlock } from "../research/shared";
 
@@ -43,7 +44,7 @@ export function UsDeep({ onOpen, selId, enabled, onLoad }: { onOpen: (id: string
       <div className="flex items-baseline gap-3 flex-wrap">
         <span className="sub-header">United States: deep coverage</span>
         <span className="text-term-muted text-[11px]">{US_SERIES.length + SERIES.filter((d) => d.economy === "US").length} series from FRED (citing each originating agency), U.S. Treasury FiscalData and the NY Fed. Click any row for its detail view.</span>
-        {q.data && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-borderSoft text-term-muted">server cache {q.data.cacheState}</span>}
+        {q.data && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-borderSoft text-term-muted" data-testid="macro-us-served">{servedLabel(q.data)}</span>}
         {enabled && <button onClick={() => q.refetch()} title="Refresh" className="text-term-muted hover:text-term-amber" data-testid="macro-us-refresh"><RefreshCw size={12} className={cn(q.isFetching && "animate-spin")} /></button>}
       </div>
       {!enabled && (
@@ -93,7 +94,9 @@ function Table({ rows, onOpen, selId }: { rows: SeriesView<SeriesDef>[]; onOpen:
             <tr key={v.def.id} onClick={() => onOpen(v.def.id)} data-testid={`macro-us-row-${v.def.id}`}
               className={cn("border-b border-term-borderSoft cursor-pointer hover:bg-term-amberSubtle align-top", v.def.id === selId && "bg-term-amberSubtle")}>
               <td className="px-2 py-1"><div className="text-term-heading">{v.def.name ?? v.def.label}</div><div className="text-term-muted text-[10px]">{v.def.basis}</div></td>
-              {v.error || !v.latest ? (
+              {v.errorKind === "pending" ? (
+                <td colSpan={5} className="px-2 py-1 text-term-muted text-[11px]" data-testid="macro-us-pending" title={v.error}>Still loading… the source has not answered yet; this table refreshes itself when it does.</td>
+              ) : v.error || !v.latest ? (
                 <td colSpan={5} className="px-2 py-1 text-term-red text-[11px]">Unavailable: {v.error ?? "no value"}</td>
               ) : (
                 <>
@@ -106,6 +109,7 @@ function Table({ rows, onOpen, selId }: { rows: SeriesView<SeriesDef>[]; onOpen:
               )}
               <td className="px-2 py-1">
                 <div className="flex gap-1 flex-wrap">
+                  {v.staleCache && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-amber text-term-amber" data-testid="macro-stale-cache-chip" title={`Cached copy retrieved ${new Date(v.staleCache.fetchedAt).toLocaleString("en-US")}, past its refresh interval. ${v.staleCache.refreshing ? "A refresh is running in the background." : "Its source is failing."}`}>STALE CACHE</span>}
                   {v.freshness?.state === "stale" && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-amber text-term-amber" data-testid="macro-stale-chip" title={`Older than expected: ${v.freshness.ageDays} days; expected at most ${v.freshness.lagDays}.`}>STALE</span>}
                   {v.freshness?.state === "hidden" && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-amber text-term-amber" title={`More than twice its expected lag: ${v.freshness.ageDays} days`}>TOO OLD</span>}
                   {v.computed && <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-term-amber text-term-amber" title="Derived by this terminal from the published series">computed</span>}
