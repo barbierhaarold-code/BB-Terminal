@@ -11,6 +11,10 @@ import { computeStats, type Setup, type Trade } from "@/lib/journal";
 import { useJournal } from "@/store/journalStore";
 import { useTradePlans } from "@/store/tradePlanStore";
 import { PLAN_SCHEMA_VERSION, mergePlans, parsePlansBlob, type PlansBlob } from "@/lib/tradePlan";
+import { isServerMode } from "@/lib/userData/backend";
+import { importIntoAccount } from "@/lib/userData/accountImport";
+import { tradeSignature } from "@/lib/userData/importPlan";
+import type { ImportReport } from "@/lib/userData/importPlan";
 import pkg from "../../package.json";
 
 export const BACKUP_FORMAT = "abdel-khader-track-record";
@@ -31,7 +35,8 @@ export interface BackupHeader {
 export interface BackupData {
   trades: Trade[];
   setups: Setup[];
-  baseCapital: number;
+  /** null = the exporting account had not set a base capital (server accounts start without one) */
+  baseCapital: number | null;
   pricesHidden: boolean;
   /** Optional (v2+). Absent in old files, in which case import leaves the user's plans alone. */
   tradePlans?: PlansBlob;
@@ -62,7 +67,11 @@ export function buildBackup(): BackupFile {
 }
 
 export function downloadBackup(): { fileName: string; tradeCount: number } {
-  const backup = buildBackup();
+  return downloadBackupFile(buildBackup());
+}
+
+/** Download any backup object (used for the "local backup first" safety copy). */
+export function downloadBackupFile(backup: BackupFile): { fileName: string; tradeCount: number } {
   const fileName = backupFileName();
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -121,7 +130,7 @@ export function parseBackup(text: string): ParseResult {
   const d = json.data;
   if (!Array.isArray(d.trades)) return { ok: false, error: 'Malformed backup: "data.trades" must be an array.' };
   if (!Array.isArray(d.setups)) return { ok: false, error: 'Malformed backup: "data.setups" must be an array.' };
-  if (!isNum(d.baseCapital) || d.baseCapital <= 0) return { ok: false, error: 'Malformed backup: "data.baseCapital" must be a positive number.' };
+  if (d.baseCapital !== null && (!isNum(d.baseCapital) || d.baseCapital <= 0)) return { ok: false, error: 'Malformed backup: "data.baseCapital" must be a positive number (or null when none was set).' };
   if (typeof d.pricesHidden !== "boolean") return { ok: false, error: 'Malformed backup: "data.pricesHidden" must be true/false.' };
 
   const setups: Setup[] = [];
@@ -154,7 +163,7 @@ export function parseBackup(text: string): ParseResult {
   if (h.tradeCount !== trades.length) {
     warnings.push(`Header says ${String(h.tradeCount)} trades but the file contains ${trades.length}.`);
   }
-  const net = computeStats(trades, d.baseCapital as number).netProfit;
+  const net = computeStats(trades, d.baseCapital as number | null).netProfit;
   if (!isNum(h.totalNetPnl) || Math.abs(h.totalNetPnl - net) > 0.005) {
     warnings.push(`Header net P&L (${String(h.totalNetPnl)}) does not match the trades (${net.toFixed(2)}).`);
   }
@@ -171,7 +180,7 @@ export function parseBackup(text: string): ParseResult {
         tradeCount: trades.length,
         totalNetPnl: net,
       },
-      data: { trades, setups, baseCapital: d.baseCapital as number, pricesHidden: d.pricesHidden, ...(tradePlans ? { tradePlans } : {}) },
+      data: { trades, setups, baseCapital: d.baseCapital as number | null, pricesHidden: d.pricesHidden, ...(tradePlans ? { tradePlans } : {}) },
     },
   };
 }
@@ -181,24 +190,29 @@ export function parseBackup(text: string): ParseResult {
 /** Two trades are the same fill if everything that identifies it matches —
  * used alongside the id check so a re-imported backup is recognised even if
  * the ids were regenerated (e.g. by a bulk re-paste). */
-function signature(t: Trade): string {
-  return [t.symbol, t.direction, t.size, t.entryPrice, t.exitPrice, t.result, t.entryAt].join("|");
-}
+const signature = tradeSignature;
 
 export interface ApplyResult {
   mode: "replace" | "merge"; before: number; after: number; added: number; skipped: number;
   /** undefined when the file carried no plans (the user's plans were left untouched) */
   plans?: { before: number; after: number; added: number; skipped: number };
+  /** server mode: the re-read of the account compared with what was expected */
+  check?: ImportReport["check"];
+  /** server mode: what happened to the account's base capital */
+  baseCapital?: ImportReport["baseCapital"];
 }
+
+const SERVER_NOTE = "Journal data is stored on the server for this build: use applyImport() so the import is written to your account.";
 
 /** Replace: the journal store becomes exactly the file's content. Plans are replaced ONLY if the file contains
  * a `tradePlans` key; a v1 file (no plans) leaves the user's plans untouched. */
 export function applyReplace(b: BackupFile): ApplyResult {
+  if (isServerMode()) throw new Error(`Replace is not available for server accounts (use Merge). ${SERVER_NOTE}`);
   const before = useJournal.getState().trades.length;
   useJournal.setState({
     trades: b.data.trades,
     setups: b.data.setups,
-    baseCapital: b.data.baseCapital,
+    baseCapital: b.data.baseCapital ?? useJournal.getState().baseCapital,
     pricesHidden: b.data.pricesHidden,
   });
   const after = useJournal.getState().trades.length;
@@ -220,6 +234,7 @@ export function applyReplace(b: BackupFile): ApplyResult {
  * added, and trade setupIds are remapped accordingly. Plans (if the file has any) are merged by id, with
  * the same setup remap; existing plans are never removed or edited, and a file without plans changes nothing. */
 export function applyMerge(b: BackupFile): ApplyResult {
+  if (isServerMode()) throw new Error(SERVER_NOTE);
   const cur = useJournal.getState();
   const ids = new Set(cur.trades.map((t) => t.id));
   const sigs = new Set(cur.trades.map(signature));
@@ -249,4 +264,25 @@ export function applyMerge(b: BackupFile): ApplyResult {
     plans = { before: curPlans.length, after: m.plans.length, added: m.added, skipped: m.skipped };
   }
   return { mode: "merge", before: cur.trades.length, after: cur.trades.length + added.length, added: added.length, skipped, plans };
+}
+
+/**
+ * The import entry point the UI uses. Local backend: exactly applyReplace / applyMerge as before.
+ * Server backend: Merge only — rows are written to the signed-in account through the adapter
+ * (idempotent, then re-checked); Replace is refused. `copyBaseCapital` only applies if the account has none.
+ */
+export async function applyImport(b: BackupFile, mode: "replace" | "merge", opts: { copyBaseCapital?: boolean } = {}): Promise<ApplyResult> {
+  if (!isServerMode()) return mode === "replace" ? applyReplace(b) : applyMerge(b);
+  if (mode === "replace") throw new Error("Replace is disabled for server accounts: it could erase your saved journal. Use Merge, which only adds what is missing.");
+  const before = useJournal.getState().trades.length;
+  const plansBefore = useTradePlans.getState().plans.length;
+  const r = await importIntoAccount(
+    { setups: b.data.setups, trades: b.data.trades, plans: b.data.tradePlans?.plans ?? [] },
+    { copyBaseCapital: opts.copyBaseCapital ? b.data.baseCapital : null },
+  );
+  return {
+    mode: "merge", before, after: r.after.trades.length, added: r.inserted.trades, skipped: r.plan.skipped.trades,
+    plans: b.data.tradePlans ? { before: plansBefore, after: r.after.plans.length, added: r.inserted.plans, skipped: r.plan.skipped.plans } : undefined,
+    check: r.check, baseCapital: r.baseCapital,
+  };
 }

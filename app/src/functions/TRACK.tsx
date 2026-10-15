@@ -7,11 +7,16 @@ import { JournalSettings } from "@/components/journal/JournalSettings";
 import { TradeTable } from "@/components/journal/TradeTable";
 import { StatsPanel } from "@/components/journal/StatsPanel";
 import { BackupPanel } from "@/components/journal/BackupPanel";
+import { UserDataGate } from "@/components/journal/UserDataGate";
 import { cn } from "@/lib/cn";
 
 type EntryMode = "log" | "import";
 
 export function TRACK() {
+  return <UserDataGate><TrackBody /></UserDataGate>;
+}
+
+function TrackBody() {
   const { trades, setups } = useJournal();
   const [mode, setMode] = useState<EntryMode>("log");
 

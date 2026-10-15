@@ -101,7 +101,7 @@ export function entryReference(p: Pick<TradePlan, "entryLow" | "entryHigh">): nu
 }
 
 /** Planned risk in dollars = risk% × base capital. Undefined when either is missing/invalid. */
-export function plannedRiskDollars(riskPct: number | undefined, baseCapital: number): number | undefined {
+export function plannedRiskDollars(riskPct: number | undefined, baseCapital: number | null | undefined): number | undefined {
   if (!isNum(riskPct) || riskPct < 0 || !isNum(baseCapital) || baseCapital <= 0) return undefined;
   return (riskPct / 100) * baseCapital;
 }

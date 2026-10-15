@@ -161,6 +161,8 @@ export interface JournalStats {
   // ── Capital-relative (all derived from the `baseCapital` passed into
   // computeStats — shown alongside the $ figures above, never replacing them) ──
   baseCapital: number;
+  /** false when no base capital is set: the % figures below are then 0 placeholders and must be shown as n/a */
+  hasCapital: boolean;
   returnPct: number;
   maxDrawdownPct: number;
   currentDrawdownPct: number;
@@ -260,7 +262,9 @@ function computeStreaks(sorted: Trade[]): { longestWin: number; longestLoss: num
   return { longestWin: maxWin, longestLoss: maxLoss };
 }
 
-export function computeStats(trades: Trade[], baseCapital: number): JournalStats {
+/** `baseCapital` null/0 = none set: every capital-relative figure is then not computable (`hasCapital` false). */
+export function computeStats(trades: Trade[], capital: number | null): JournalStats {
+  const baseCapital = capital ?? 0;
   const sorted = [...trades].sort((a, b) => (a.entryAt < b.entryAt ? -1 : 1));
   const results = sorted.map((t) => t.result);
 
@@ -349,7 +353,7 @@ export function computeStats(trades: Trade[], baseCapital: number): JournalStats
     expectancy, grossProfit, grossLoss, netProfit, avgWin, avgLoss,
     longestWinStreak: longestWin, longestLossStreak: longestLoss, currentDrawdown,
     byPeriod, periodGranularity, bestTrade, worstTrade, byDirection, byWeekday, equityCurve,
-    baseCapital, returnPct, maxDrawdownPct, currentDrawdownPct, avgWinPct, avgLossPct, calmar,
+    baseCapital, hasCapital, returnPct, maxDrawdownPct, currentDrawdownPct, avgWinPct, avgLossPct, calmar,
     riskPerTradePct, depositLoadPct, avgDurationMs, tradesPerWeek,
   };
 }

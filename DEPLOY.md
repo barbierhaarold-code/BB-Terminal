@@ -55,13 +55,14 @@ docker compose ps && docker compose logs --tail 50 gateway
 ```
 **Roll back:** `git checkout <previous-tag>` and run the same `up -d --build`. Tag every release
 (`git tag release-YYYY-MM-DD`) so there is always a known-good point. Changing only
-`.env.production` needs no rebuild, except the two `VITE_SUPABASE_*` values, which are baked
-into the frontend and do need `--build`.
+`.env.production` needs no rebuild, except the two `VITE_SUPABASE_*` values and
+`VITE_USER_DATA_BACKEND`, which are baked into the frontend and do need `--build`.
 
 ## 6. Back up
 - **Users and passwords** live in Supabase (their backups/plan apply; check what your plan includes).
-- **Each person's journal (TRACK), settings and workspace live in their own browser**, not on the server.
-  Everyone should use TRACK > **Export JSON** regularly. Losing the server loses none of it.
+- **Each person's journal (TRACK), settings and workspace live in their own browser**, not on the server
+  (default `VITE_USER_DATA_BACKEND=local`). Everyone should use TRACK > **Export JSON** regularly. Losing the server loses none of it.
+  With `VITE_USER_DATA_BACKEND=server` the journal and plans live in Supabase instead: see section 11 for backups.
 - **`.env.production`**: keep a copy in your password manager. It is the only server-side secret store.
 - Institutional Holdings cache volume (`hold-cache`, the SEC bulk data and its index) is re-creatable too: no backup needed.
 - OpenBB cache volume (`openbb-data`) is re-creatable; the Caddy volume (`caddy-data`) holds the HTTPS
@@ -110,3 +111,28 @@ docker compose down                     # stop everything (volumes kept)
 - Measured RAM (one signed-in user): idle about 1.0 GB in total (openbb about 0.55 GB, quant about 0.25 GB, gateway about 0.15 GB, caddy about 0.04 GB); peak about 1.45 GB during the first HOLD build.
 - Each person's journal (TRACK), plans and settings are stored per browser origin: a new URL starts empty. Use TRACK > Export JSON / Import JSON to move them.
 - OpenBB also keeps a small yfinance timezone cache in `/home/openbb/.cache` (not a volume; re-created automatically).
+
+## 11. Per-user server storage for TRACK / PLAN (`VITE_USER_DATA_BACKEND`, opt-in)
+**What the flag does.** `VITE_USER_DATA_BACKEND` is a build-time, public variable baked into the frontend.
+- `local` (the default, also used when the variable is unset or has any other value): Track Record, trade plans and base capital
+  stay in each browser's `localStorage`, exactly as before. The Supabase tables are not used.
+- `server`: each signed-in user's trades, plans, setups and base capital are read from and written to their own rows in Supabase
+  (row-level security; only the publishable key plus the user's own login token, never a service key). Nothing is written to
+  `localStorage` for them; existing local data is only read when the user clicks "Import my local journal into this account".
+  Backup Replace is disabled in this mode (Merge only). Design and test record: `docs/user-data-design.md`.
+
+**Enable it, in this order (never skip a step):**
+1. In the Supabase SQL editor, run `supabase/migrations/20261009000000_user_data_foundation.sql` (creates the four tables with RLS; safe to re-run).
+2. Run the isolation test `supabase/tests/run_all.sql` with **two empty throwaway accounts** (put their e-mails in the two `EMAIL_A` / `EMAIL_B` lines,
+   do not commit them). It must end with `SUMMARY PASS`. **Never run it with accounts that hold real data**: it issues update/delete statements on account A's trades as a test.
+3. Only then set `VITE_USER_DATA_BACKEND=server` in `.env.production` and rebuild: `docker compose --env-file .env.production up -d --build`.
+4. Each user exports a JSON backup of their local journal first, then uses "Import my local journal into this account" (or Backup > Merge) once.
+
+**Roll back:** set `VITE_USER_DATA_BACKEND=local` and rebuild (`up -d --build`). The app goes back to each browser's local data. Server data is
+**not** deleted: it stays in Supabase, unused, and is there again if you switch back to `server`. Anything entered in server mode is not copied
+back to the browser automatically; export it as JSON before rolling back and import it in local mode if you need it.
+
+**Backups (read this).** In server mode the journal is no longer in the browser, and there is no automated backup of these tables yet.
+- Every server-mode user must **export a JSON backup regularly** (TRACK > Export JSON) until real backups exist.
+- The current Supabase project is on the **free tier: no point-in-time recovery** (PITR). A bad write, a mistaken delete or deleting a user
+  in the dashboard (rows are removed with the account, `on delete cascade`) cannot be undone from Supabase; only the JSON exports can restore it.

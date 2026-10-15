@@ -14,6 +14,7 @@ import {
 import { SESSIONS, sessionStatus, overlaps, DXY, intradayStats } from "@/lib/forex";
 import { computeStats, MACRO_BIAS_OPTIONS, CONVICTION_OPTIONS, type Direction } from "@/lib/journal";
 import { useJournal } from "@/store/journalStore";
+import { journalUnavailableReason, plansUnavailableReason } from "@/lib/userData/readiness";
 import { useTradePlans } from "@/store/tradePlanStore";
 import { adherenceStats, computeRealizedR, entryReference, plannedRiskDollars, plannedRMultiples, R_NOTE, statusCounts } from "@/lib/tradePlan";
 import { useWorkspace } from "@/store/workspaceStore";
@@ -288,6 +289,9 @@ async function toolCotPositioning(input: { contract?: string }) {
 // get_track_record_stats
 // ────────────────────────────────────────────────────────────
 function toolTrackRecordStats(input: { recentTradesLimit?: number }) {
+  // Only the signed-in user's loaded data; a load failure is never reported as an empty journal.
+  const unavailable = journalUnavailableReason();
+  if (unavailable) return { available: false, reason: unavailable };
   const { trades, setups, baseCapital } = useJournal.getState();
   if (trades.length === 0) {
     return { available: false, reason: "No trades logged yet in Track Record." };
@@ -309,13 +313,16 @@ function toolTrackRecordStats(input: { recentTradesLimit?: number }) {
   return {
     stats: {
       count: stats.count, winRate: stats.winRate, profitFactor: stats.profitFactor,
-      sharpe: stats.sharpe, calmar: stats.calmar, expectancy: stats.expectancy,
+      sharpe: stats.sharpe, calmar: stats.hasCapital ? stats.calmar : null, expectancy: stats.expectancy,
       netProfit: stats.netProfit, avgWin: stats.avgWin, avgLoss: stats.avgLoss,
-      maxDrawdownPct: stats.maxDrawdownPct, currentDrawdownPct: stats.currentDrawdownPct,
+      // capital-relative figures are null (not 0) when the user has not set a base capital
+      baseCapitalSet: stats.hasCapital,
+      maxDrawdownPct: stats.hasCapital ? stats.maxDrawdownPct : null, currentDrawdownPct: stats.hasCapital ? stats.currentDrawdownPct : null,
       tradesPerWeek: stats.tradesPerWeek, avgDurationMs: stats.avgDurationMs,
       byDirection: stats.byDirection, byWeekday: stats.byWeekday,
     },
     recentTrades,
+    ...(stats.hasCapital ? {} : { note: "No base capital is set for this account: drawdown %, Calmar and other capital-relative figures are n/a (null), not zero." }),
   };
 }
 
@@ -323,6 +330,8 @@ function toolTrackRecordStats(input: { recentTradesLimit?: number }) {
 // get_trade_plans  (read-only)
 // ────────────────────────────────────────────────────────────
 function toolTradePlans() {
+  const unavailable = plansUnavailableReason() ?? journalUnavailableReason();
+  if (unavailable) return { available: false, reason: unavailable };
   const { plans, loadError } = useTradePlans.getState();
   if (loadError) return { available: false, reason: `Saved plans could not be read: ${loadError}` };
   if (plans.length === 0) return { available: false, reason: "No trade plans yet." };

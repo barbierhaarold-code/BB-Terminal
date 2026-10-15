@@ -37,6 +37,7 @@ services:
       args:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?set VITE_SUPABASE_URL}
         VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:?set VITE_SUPABASE_PUBLISHABLE_KEY}
+        VITE_USER_DATA_BACKEND: ${VITE_USER_DATA_BACKEND:-local}
     restart: unless-stopped
     expose: ["8080"]
     environment:
