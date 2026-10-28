@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# BBterminal — launch both servers and open the browser.
+# ABDEL KHADER — launch the API, quant service and UI, then open the browser.
 # Idempotent: if a server is already running on its port, it's left alone.
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
-AMBER="\033[33m"; GREEN="\033[32m"; RED="\033[31m"; DIM="\033[2m"; RST="\033[0m"
-step() { printf "${AMBER}▸ %s${RST}\n" "$*"; }
+VIOLET="\033[38;2;180;92;255m"; GREEN="\033[32m"; RED="\033[31m"; DIM="\033[2m"; RST="\033[0m"
+step() { printf "${VIOLET}▸ %s${RST}\n" "$*"; }
 ok()   { printf "${GREEN}✓ %s${RST}\n" "$*"; }
 fail() { printf "${RED}✗ %s${RST}\n" "$*" >&2; exit 1; }
 
@@ -66,10 +66,12 @@ if port_in_use "$UI_PORT"; then
   ok "UI dev server already running on :$UI_PORT"
 else
   step "Starting UI on :$UI_PORT"
-  ( cd app && nohup npm run dev > /tmp/bbterminal-ui.log 2>&1 & )
+  # Redirect the whole background job, not just npm, so no shell is left holding this script's stdout.
+  ( cd app && nohup npm run dev < /dev/null > /tmp/bbterminal-ui.log 2>&1 & ) > /dev/null 2>&1
   printf "  ${DIM}waiting for UI"
   for i in $(seq 1 30); do
-    if curl -s -o /dev/null "http://127.0.0.1:$UI_PORT/"; then
+    # Vite binds "localhost", which can be [::1] only, so don't hard-code 127.0.0.1 here.
+    if curl -s -o /dev/null "http://localhost:$UI_PORT/"; then
       printf "${RST}\n"; ok "UI up"; break
     fi
     printf "."; sleep 1
@@ -90,9 +92,9 @@ fi
 cat <<EOF
 
 ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RST}
-${AMBER}  BBterminal is live${RST}
+${VIOLET}  ABDEL KHADER is live${RST}
 
-  UI:         ${AMBER}${URL}${RST}
+  UI:         ${VIOLET}${URL}${RST}
   API docs:   ${DIM}http://localhost:${API_PORT}/docs${RST}
   Quant docs: ${DIM}http://localhost:${QUANT_PORT}/docs${RST}
 
@@ -100,6 +102,6 @@ ${AMBER}  BBterminal is live${RST}
               /tmp/bbterminal-quant.log
               /tmp/bbterminal-ui.log
 
-  Stop:       ${AMBER}./stop.sh${RST}
+  Stop:       ${VIOLET}./stop.sh${RST}
 ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RST}
 EOF

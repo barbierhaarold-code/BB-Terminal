@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# BBterminal — stop both servers.
+# ABDEL KHADER — stop the API, quant service and UI.
 
 set -u
 cd "$(dirname "$0")"
 
-AMBER="\033[33m"; GREEN="\033[32m"; DIM="\033[2m"; RST="\033[0m"
-step() { printf "${AMBER}▸ %s${RST}\n" "$*"; }
+VIOLET="\033[38;2;180;92;255m"; GREEN="\033[32m"; DIM="\033[2m"; RST="\033[0m"
+step() { printf "${VIOLET}▸ %s${RST}\n" "$*"; }
 ok()   { printf "${GREEN}✓ %s${RST}\n" "$*"; }
 
 for port in 6900 6901 5173; do
@@ -23,4 +23,4 @@ for port in 6900 6901 5173; do
   fi
 done
 
-ok "BBterminal stopped"
+ok "ABDEL KHADER stopped"
